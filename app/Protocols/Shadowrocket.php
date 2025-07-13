@@ -196,6 +196,11 @@ class Shadowrocket extends AbstractProtocol
                 $config['path'] = data_get($protocol_settings, 'network_settings.serviceName');
                 $config['host'] = data_get($protocol_settings, 'tls_settings.server_name') ?? $server['host'];
                 break;
+            case 'xhttp':
+                $config['obfs'] = "xhttp";
+                $config['path'] = data_get($protocol_settings, 'network_settings.path');
+                $config['obfsParam'] = data_get($protocol_settings, 'network_settings.host', $server['host']);
+                break;
         }
 
         $query = http_build_query($config, '', '&', PHP_QUERY_RFC3986);
