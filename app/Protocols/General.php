@@ -8,7 +8,7 @@ use App\Support\AbstractProtocol;
 
 class General extends AbstractProtocol
 {
-    public $flags = ['general', 'v2rayn', 'v2rayng', 'passwall', 'ssrplus', 'sagernet'];
+    public $flags = ['general', 'v2rayn', 'v2rayng', 'passwall', 'ssrplus', 'sagernet', 'exclave'];
 
     protected $protocolRequirements = [
         'v2rayng' => [
@@ -187,6 +187,9 @@ class General extends AbstractProtocol
                 $config['host'] = data_get($protocol_settings, 'network_settings.host', $server['host']);
                 $config['mode'] = data_get($protocol_settings, 'network_settings.mode', 'auto');
                 $config['extra'] = json_encode(data_get($protocol_settings, 'network_settings.extra'));
+                if (isset($config['extra']) && $config['extra'] == 'null') {
+                    unset($config['extra']);
+                }
                 break;
         }
 
