@@ -80,6 +80,7 @@ class Stash extends AbstractProtocol
         $proxies = [];
 
         foreach ($servers as $item) {
+            $protocol_settings = $item['protocol_settings'];
             if ($item['type'] === 'shadowsocks') {
                 array_push($proxy, self::buildShadowsocks($item['password'], $item));
                 array_push($proxies, $item['name']);
@@ -88,7 +89,9 @@ class Stash extends AbstractProtocol
                 array_push($proxy, self::buildVmess($item['password'], $item));
                 array_push($proxies, $item['name']);
             }
-            if ($item['type'] === 'vless') {
+            if ($item['type'] === 'vless'
+                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http', 'h2'])
+            ) {
                 array_push($proxy, $this->buildVless($item['password'], $item));
                 array_push($proxies, $item['name']);
             }
@@ -270,6 +273,11 @@ class Stash extends AbstractProtocol
         $array['port'] = $server['port'];
         $array['uuid'] = $uuid;
         $array['udp'] = true;
+        $array['network'] = $server['protocol_settings']['network'];
+
+        if ($flow = $protocol_settings['flow']) {
+            $array['flow'] = $flow;
+        }
 
         $array['client-fingerprint'] = Helper::getRandFingerprint();
 
@@ -283,16 +291,21 @@ class Stash extends AbstractProtocol
                 break;
             case 2:
                 $array['tls'] = true;
-                $array['reality-opts'] = [
-                    'public-key' => data_get($protocol_settings, 'reality_settings.public_key'),
-                    'short-id' => data_get($protocol_settings, 'reality_settings.short_id')
-                ];
+                if ($serverName = data_get($protocol_settings, 'reality_settings.server_name')) {
+                    $array['servername'] = $serverName;
+                }
+                $array['reality-opts']['public-key'] = data_get($protocol_settings, 'reality_settings.public_key');
+                if ($shortId = data_get($protocol_settings, 'reality_settings.short_id')) {
+                    $array['reality-opts']['short-id'] = $shortId;
+                }
         }
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
-                $array['network'] = data_get($protocol_settings, 'network_settings.header.type');
-                $array['http-opts']['path'] = data_get($protocol_settings, 'network_settings.header.request.path', ['/']);
+                if (data_get($protocol_settings, 'network_settings.header.type', 'none') !== 'none') {
+                    $array['network'] = data_get($protocol_settings, 'network_settings.header.type');
+                    $array['http-opts']['path'] = data_get($protocol_settings, 'network_settings.header.request.path', ['/']);
+                }
                 break;
             case 'ws':
                 $array['network'] = 'ws';
@@ -305,11 +318,11 @@ class Stash extends AbstractProtocol
                 $array['network'] = 'grpc';
                 $array['grpc-opts']['grpc-service-name'] = data_get($protocol_settings, 'network_settings.serviceName');
                 break;
-            // case 'h2':
-            //     $array['network'] = 'h2';
-            //     $array['h2-opts']['host'] = data_get($protocol_settings, 'network_settings.host');
-            //     $array['h2-opts']['path'] = data_get($protocol_settings, 'network_settings.path');
-            //     break;
+            case 'h2':
+                $array['network'] = 'h2';
+                $array['h2-opts']['host'] = data_get($protocol_settings, 'network_settings.host');
+                $array['h2-opts']['path'] = data_get($protocol_settings, 'network_settings.path');
+                break;
         }
 
         return $array;
