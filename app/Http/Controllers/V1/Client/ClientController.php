@@ -52,9 +52,8 @@ class ClientController extends Controller
         $requestedTypes = $this->parseRequestedTypes($request->input('types'));
         $filterKeywords = $this->parseFilterKeywords($request->input('filter'));
 
-        $protocolClassName = app('protocols.manager')->matchProtocolClassName($clientInfo['flag']) ?? null;
-        if (is_null($protocolClassName)) {return;}
-        //    ?? General::class;
+        $protocolClassName = app('protocols.manager')->matchProtocolClassName($clientInfo['flag'])
+            ?? General::class;
 
         $servers = ServerService::getAvailableServers($user);
         $servers = HookManager::filter('client.subscribe.servers', $servers, $user, $request);
