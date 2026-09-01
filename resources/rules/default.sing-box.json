@@ -2,10 +2,6 @@
     "dns": {
         "rules": [
             {
-                "outbound": ["any"],
-                "server": "local"
-            },
-            {
                 "clash_mode": "global",
                 "server": "remote"
             },
@@ -20,18 +16,16 @@
         ],
         "servers": [
             {
-                "address": "https://1.1.1.1/dns-query",
-                "detour": "节点选择",
-                "tag": "remote"
+                "type": "https",
+                "tag": "remote",
+                "server": "1.1.1.1",
+                "detour": "节点选择"
             },
             {
-                "address": "https://223.5.5.5/dns-query",
-                "detour": "direct",
-                "tag": "local"
-            },
-            {
-                "address": "rcode://success",
-                "tag": "block"
+                "type": "https",
+                "tag": "local",
+                "server": "223.5.5.5",
+                "detour": "direct"
             }
         ],
         "strategy": "prefer_ipv4"
@@ -44,35 +38,32 @@
             "store_fakeip": true
         }
     },
+    "http_clients": [
+        {
+            "tag": "default",
+            "detour": "自动选择"
+        }
+    ],
     "inbounds": [
         {
             "auto_route": true,
-            "domain_strategy": "prefer_ipv4",
             "endpoint_independent_nat": true,
             "address": ["172.19.0.1/30", "2001:0470:f9da:fdfa::1/64"],
             "mtu": 9000,
-            "sniff": true,
-            "sniff_override_destination": true,
             "stack": "system",
             "strict_route": true,
             "type": "tun"
         },
         {
-            "domain_strategy": "prefer_ipv4",
             "listen": "127.0.0.1",
             "listen_port": 2333,
-            "sniff": true,
-            "sniff_override_destination": true,
             "tag": "socks-in",
             "type": "socks",
             "users": []
         },
         {
-            "domain_strategy": "prefer_ipv4",
             "listen": "127.0.0.1",
             "listen_port": 2334,
-            "sniff": true,
-            "sniff_override_destination": true,
             "tag": "mixed-in",
             "type": "mixed",
             "users": []
@@ -86,8 +77,6 @@
             "outbounds": ["自动选择"]
         },
         { "tag": "direct", "type": "direct" },
-        { "tag": "block", "type": "block" },
-        { "tag": "dns-out", "type": "dns" },
         {
             "tag": "自动选择",
             "type": "urltest",
@@ -96,10 +85,18 @@
     ],
     "route": {
         "auto_detect_interface": true,
+        "default_http_client": "default",
+        "default_domain_resolver": {
+            "server": "local",
+            "strategy": "prefer_ipv4"
+        },
         "rules": [
             {
-                "outbound": "dns-out",
-                "protocol": "dns"
+                "action": "sniff"
+            },
+            {
+                "protocol": "dns",
+                "action": "hijack-dns"
             },
             {
                 "clash_mode": "direct",
@@ -124,14 +121,14 @@
                 "type": "remote",
                 "format": "binary",
                 "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-                "download_detour": "自动选择"
+                "http_client": "default"
             },
             {
                 "tag": "geoip-cn",
                 "type": "remote",
                 "format": "binary",
                 "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-                "download_detour": "自动选择"
+                "http_client": "default"
             }
         ]
     }

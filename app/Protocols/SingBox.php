@@ -313,7 +313,7 @@ class SingBox extends AbstractProtocol
 
     /**
      * 根据客户端版本自适应配置格式
-     * 模板基准格式: 1.13.0+ (最新)
+     * 模板基准格式: 1.14.0+ (最新)
      */
     protected function adaptConfigForVersion(): void
     {
@@ -325,6 +325,11 @@ class SingBox extends AbstractProtocol
         // >= 1.13.0: 移除已删除的 block/dns 出站
         if (version_compare($coreVersion, '1.13.0', '>=')) {
             $this->upgradeSpecialOutboundsToActions();
+        }
+
+        // < 1.14.0: rule-set http_client → download_detour; 移除顶层 http_clients
+        if (version_compare($coreVersion, '1.14.0', '<')) {
+            $this->downgradeHTTPClients();
         }
 
         // < 1.11.0: rule action 降级为旧出站; 恢复废弃字段
@@ -341,6 +346,54 @@ class SingBox extends AbstractProtocol
         // < 1.10.0: tun address 数组 → inet4_address/inet6_address
         if (version_compare($coreVersion, '1.10.0', '<')) {
             $this->convertTunAddressToLegacy();
+        }
+    }
+
+    /**
+     * sing-box < 1.14.0: 将 rule-set 的 http_client 引用还原为 download_detour,
+     * 并移除 1.14 新增的顶层 http_clients / route.default_http_client 字段
+     */
+    private function downgradeHTTPClients(): void
+    {
+        // tag → detour 映射 (取 http_clients 定义里的拨号 detour)
+        $clients = [];
+        foreach ($this->config['http_clients'] ?? [] as $client) {
+            if (is_array($client) && isset($client['tag'])) {
+                $clients[$client['tag']] = $client['detour'] ?? null;
+            }
+        }
+        $defaultTag = $this->config['route']['default_http_client']
+            ?? (array_key_first($clients) ?: null);
+
+        $resolveDetour = function ($ref) use ($clients, $defaultTag) {
+            // http_client 既可以是 tag 引用, 也可以是内联对象
+            if (is_array($ref)) {
+                return $ref['detour'] ?? null;
+            }
+            return $clients[$ref] ?? $clients[$defaultTag] ?? null;
+        };
+
+        if (isset($this->config['route']['rule_set']) && is_array($this->config['route']['rule_set'])) {
+            foreach ($this->config['route']['rule_set'] as &$ruleSet) {
+                if (($ruleSet['type'] ?? '') !== 'remote') {
+                    continue;
+                }
+                if (array_key_exists('http_client', $ruleSet)) {
+                    $detour = $resolveDetour($ruleSet['http_client']);
+                    unset($ruleSet['http_client']);
+                } else {
+                    $detour = $defaultTag !== null ? ($clients[$defaultTag] ?? null) : null;
+                }
+                if ($detour !== null) {
+                    $ruleSet['download_detour'] = $detour;
+                }
+            }
+            unset($ruleSet);
+        }
+
+        unset($this->config['http_clients']);
+        if (isset($this->config['route'])) {
+            unset($this->config['route']['default_http_client']);
         }
     }
 
@@ -408,6 +461,7 @@ class SingBox extends AbstractProtocol
     {
         $needsDnsOutbound = false;
         $needsBlockOutbound = false;
+        $needsInboundSniff = false;
 
         if (isset($this->config['route']['rules'])) {
             foreach ($this->config['route']['rules'] as &$rule) {
@@ -425,9 +479,25 @@ class SingBox extends AbstractProtocol
                         $rule['outbound'] = 'block';
                         $needsBlockOutbound = true;
                         break;
+                    case 'sniff':
+                        // < 1.11.0: 无 sniff action, 嗅探回到入站字段
+                        $needsInboundSniff = true;
+                        $rule = null;
+                        break;
                 }
             }
             unset($rule);
+            if ($needsInboundSniff) {
+                $this->config['route']['rules'] = array_values(array_filter($this->config['route']['rules']));
+            }
+        }
+
+        if ($needsInboundSniff && !empty($this->config['inbounds']) && is_array($this->config['inbounds'])) {
+            foreach ($this->config['inbounds'] as &$inbound) {
+                $inbound['sniff'] = true;
+                $inbound['sniff_override_destination'] = true;
+            }
+            unset($inbound);
         }
 
         if ($needsBlockOutbound) {
