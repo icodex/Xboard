@@ -82,7 +82,7 @@ class ConfigController extends Controller
 
     /**
      * 获取配置映射数据
-     * 
+     *
      * @return array 配置映射数组
      */
     private function getConfigMappings(): array
@@ -238,7 +238,7 @@ class ConfigController extends Controller
 
     /**
      * 格式化模板内容
-     * 
+     *
      * @param mixed $content 模板内容
      * @param string $format 输出格式 (json|string)
      * @return string 格式化后的内容

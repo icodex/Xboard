@@ -8,7 +8,7 @@ use App\Models\Server;
 
 class QuantumultX extends AbstractProtocol
 {
-    public $flags = ['quantumult%20x', 'quantumult-x'];
+    public $flags = ['quantumult%20x', 'quantumult-x', 'quantumultx'];
     public $allowedProtocols = [
         Server::TYPE_SHADOWSOCKS,
         Server::TYPE_VMESS,
@@ -18,12 +18,19 @@ class QuantumultX extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
     ];
+    const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.quantumultx.conf';
+    const DEFAULT_TEMPLATE_FILE = 'resources/rules/default.quantumultx.conf';
 
     public function handle()
     {
         $servers = $this->servers;
         $user = $this->user;
-        $uri = '';
+
+        $appName = admin_setting('app_name', 'XBoard');
+
+        $proxies = '';
+        $proxyGroup = '';
+
         foreach ($servers as $item) {
             $uri .= match ($item['type']) {
                 Server::TYPE_SHADOWSOCKS => self::buildShadowsocks($item['password'], $item),
@@ -36,9 +43,22 @@ class QuantumultX extends AbstractProtocol
                 default => ''
             };
         }
-        return response(base64_encode($uri))
-            ->header('content-type', 'text/plain')
-            ->header('subscription-userinfo', "upload={$user['u']}; download={$user['d']}; total={$user['transfer_enable']}; expire={$user['expired_at']}");
+        $config = admin_setting('subscribe_template_quantumultx', File::exists(base_path(self::CUSTOM_TEMPLATE_FILE))
+            ? File::get(base_path(self::CUSTOM_TEMPLATE_FILE))
+            : File::get(base_path(self::DEFAULT_TEMPLATE_FILE)));
+        // Subscription link
+        $subsURL = Helper::getSubscribeUrl($user['token']);
+        $subsDomain = request()->header('Host');
+
+        $config = str_replace('$app_name', admin_setting('app_name', 'XBoard'), $config);
+        $config = str_replace('$subs_link', $subsURL, $config);
+        $config = str_replace('$subs_domain', $subsDomain, $config);
+        $config = str_replace('$proxies', $proxies, $config);
+        $config = str_replace('$proxy_group', rtrim($proxyGroup, ', '), $config);
+
+        return response($config, 200)
+            ->header('subscription-userinfo', "upload={$user['u']}; download={$user['d']}; total={$user['transfer_enable']}; expire={$user['expired_at']}")
+            ->header('content-disposition', "attachment;filename*=UTF-8''" . rawurlencode($appName) . ".conf");
     }
 
     public static function buildShadowsocks($password, $server)

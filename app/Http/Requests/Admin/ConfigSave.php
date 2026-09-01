@@ -111,7 +111,8 @@ class ConfigSave extends FormRequest
         'subscribe_template_clashmeta' => 'nullable',
         'subscribe_template_stash' => 'nullable',
         'subscribe_template_surge' => 'nullable',
-        'subscribe_template_surfboard' => 'nullable'
+        'subscribe_template_surfboard' => 'nullable',
+        'subscribe_template_quantumultx' => 'nullable'
     ];
     /**
      * Get the validation rules that apply to the request.

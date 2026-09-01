@@ -11,6 +11,9 @@ use App\Models\Server;
 class Stash extends AbstractProtocol
 {
     public $flags = ['stash'];
+    const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.stash.yaml';
+    const CUSTOM_CLASH_TEMPLATE_FILE = 'resources/rules/custom.clash.yaml';
+    const DEFAULT_TEMPLATE_FILE = 'resources/rules/default.clash.yaml';
     public $allowedProtocols = [
         Server::TYPE_SHADOWSOCKS,
         Server::TYPE_VMESS,
@@ -22,6 +25,7 @@ class Stash extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
     ];
+
     protected $protocolRequirements = [
         // Global rules applied regardless of client version (features Stash never supports)
         '*' => [
@@ -82,10 +86,6 @@ class Stash extends AbstractProtocol
         ]
     ];
 
-    const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.stash.yaml';
-    const CUSTOM_CLASH_TEMPLATE_FILE = 'resources/rules/custom.clash.yaml';
-    const DEFAULT_TEMPLATE_FILE = 'resources/rules/default.clash.yaml';
-
     public function handle()
     {
         $servers = $this->servers;
@@ -99,6 +99,7 @@ class Stash extends AbstractProtocol
         $proxies = [];
 
         foreach ($servers as $item) {
+            $protocol_settings = $item['protocol_settings'];
             if ($item['type'] === Server::TYPE_SHADOWSOCKS) {
                 array_push($proxy, self::buildShadowsocks($item['password'], $item));
                 array_push($proxies, $item['name']);
@@ -107,7 +108,9 @@ class Stash extends AbstractProtocol
                 array_push($proxy, self::buildVmess($item['password'], $item));
                 array_push($proxies, $item['name']);
             }
-            if ($item['type'] === Server::TYPE_VLESS) {
+            if ($item['type'] === Server::TYPE_VLESS
+                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http'])
+            ) {
                 array_push($proxy, $this->buildVless($item['password'], $item));
                 array_push($proxies, $item['name']);
             }
@@ -209,24 +212,26 @@ class Stash extends AbstractProtocol
             // 根据插件类型进行字段映射
             switch ($plugin) {
                 case 'obfs':
-                    $array['plugin-opts'] = [
-                        'mode' => $parsedOpts['obfs'],
-                        'host' => $parsedOpts['obfs-host'],
-                    ];
+                    $array['plugin-opts'] = array_filter([
+                        'mode' => $parsedOpts['obfs'] ?? ($parsedOpts['mode'] ?? 'http'),
+                        'host' => $parsedOpts['obfs-host'] ?? ($parsedOpts['host'] ?? 'www.bing.com'),
+                    ]);
 
                     // 可选path参数
                     if (isset($parsedOpts['path'])) {
-                        $array['plugin-opts']['path'] = $parsedOpts['path'];
+                        $array['plugin-opts'] = array_filter([
+                            'path' => $parsedOpts['path'] ?? '/',
+                        ]);
                     }
                     break;
 
                 case 'v2ray-plugin':
-                    $array['plugin-opts'] = [
+                    $array['plugin-opts'] = array_filter([
                         'mode' => $parsedOpts['mode'] ?? 'websocket',
                         'tls' => isset($parsedOpts['tls']) && $parsedOpts['tls'] == 'true',
                         'host' => $parsedOpts['host'] ?? '',
                         'path' => $parsedOpts['path'] ?? '/',
-                    ];
+                    ], fn($v) => $v !== null);
                     break;
 
                 default:
@@ -239,45 +244,54 @@ class Stash extends AbstractProtocol
 
     public static function buildVmess($uuid, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
-        $array = [];
-        $array['name'] = $server['name'];
-        $array['type'] = 'vmess';
-        $array['server'] = $server['host'];
-        $array['port'] = $server['port'];
-        $array['uuid'] = $uuid;
-        $array['alterId'] = 0;
-        $array['cipher'] = 'auto';
-        $array['udp'] = true;
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $array = [
+            'name' => $server['name'],
+            'type' => 'vmess',
+            'server' => $server['host'],
+            'port' => $server['port'],
+            'uuid' => $uuid,
+            'alterId' => 0,
+            'cipher' => 'auto',
+            'udp' => true
+        ];
 
-        $array['tls'] = (bool) data_get($protocol_settings, 'tls');
-        $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
-        if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
-            $array['servername'] = $serverName;
+        if (data_get($protocol_settings, 'tls')) {
+            $array['tls'] = (bool) data_get($protocol_settings, 'tls');
+            $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
+            $array['servername'] = data_get($protocol_settings, 'tls_settings.server_name');
+            self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));
         }
+
+        self::appendUtls($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
                 $headerType = data_get($protocol_settings, 'network_settings.header.type', 'tcp');
                 $array['network'] = ($headerType === 'http') ? 'http' : 'tcp';
                 if ($headerType === 'http') {
-                    $array['http-opts']['path'] = data_get($protocol_settings, 'network_settings.header.request.path', ['/']);
-                    if ($host = data_get($protocol_settings, 'network_settings.header.request.headers.Host')) {
-                        $array['http-opts']['headers']['Host'] = $host;
+                    if (
+                        $httpOpts = array_filter([
+                            'headers' => data_get($protocol_settings, 'network_settings.header.request.headers'),
+                            'path' => data_get($protocol_settings, 'network_settings.header.request.path', ['/'])
+                        ])
+                    ) {
+                        $array['http-opts'] = $httpOpts;
                     }
                 }
                 break;
             case 'ws':
                 $array['network'] = 'ws';
-                $array['ws-opts']['path'] = data_get($protocol_settings, 'network_settings.path');
-                if ($host = data_get($protocol_settings, 'network_settings.headers.Host')) {
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $array['ws-opts']['path'] = $path;
+                if ($host = data_get($protocol_settings, 'network_settings.headers.Host'))
                     $array['ws-opts']['headers'] = ['Host' => $host];
-                }
                 break;
             case 'grpc':
                 $array['network'] = 'grpc';
-                $array['grpc-opts'] = [];
-                $array['grpc-opts']['grpc-service-name'] = data_get($protocol_settings, 'network_settings.serviceName');
+                if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
+                    $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
             case 'h2':
                 $array['network'] = 'h2';
@@ -296,39 +310,43 @@ class Stash extends AbstractProtocol
 
     public function buildVless($uuid, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
-        $array = [];
-        $array['name'] = $server['name'];
-        $array['type'] = 'vless';
-        $array['server'] = $server['host'];
-        $array['port'] = $server['port'];
-        $array['uuid'] = $uuid;
-        $array['udp'] = true;
-
-        if ($fingerprint = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
-            $array['client-fingerprint'] = $fingerprint;
-        }
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $array = [
+            'name' => $server['name'],
+            'type' => 'vless',
+            'server' => $server['host'],
+            'port' => $server['port'],
+            'uuid' => $uuid,
+            'alterId' => 0,
+            'cipher' => 'auto',
+            'udp' => true,
+            'flow' => data_get($protocol_settings, 'flow'),
+            'encryption' => match (data_get($protocol_settings, 'encryption.enabled')) {
+                true => data_get($protocol_settings, 'encryption.encryption', 'none'),
+                default => 'none'
+            },
+            'tls' => false
+        ];
 
         switch (data_get($protocol_settings, 'tls')) {
             case 1:
                 $array['tls'] = true;
-                $array['skip-cert-verify'] = data_get($protocol_settings, 'tls_settings.allow_insecure');
+                $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
                 if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
                     $array['servername'] = $serverName;
                 }
+                self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));
+                self::appendUtls($array, $protocol_settings);
                 break;
             case 2:
                 $array['tls'] = true;
                 $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'reality_settings.allow_insecure', false);
-                if ($serverName = data_get($protocol_settings, 'reality_settings.server_name')) {
-                    $array['servername'] = $serverName;
-                    $array['sni'] = $serverName;
-                }
-                $array['flow'] = data_get($protocol_settings, 'flow');
+                $array['servername'] = data_get($protocol_settings, 'reality_settings.server_name');
                 $array['reality-opts'] = [
                     'public-key' => data_get($protocol_settings, 'reality_settings.public_key'),
                     'short-id' => data_get($protocol_settings, 'reality_settings.short_id')
                 ];
+                self::appendUtls($array, $protocol_settings);
                 break;
         }
 
@@ -349,14 +367,16 @@ class Stash extends AbstractProtocol
                 break;
             case 'ws':
                 $array['network'] = 'ws';
-                $array['ws-opts']['path'] = data_get($protocol_settings, 'network_settings.path');
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $array['ws-opts']['path'] = $path;
                 if ($host = data_get($protocol_settings, 'network_settings.headers.Host')) {
                     $array['ws-opts']['headers'] = ['Host' => $host];
                 }
                 break;
             case 'grpc':
                 $array['network'] = 'grpc';
-                $array['grpc-opts']['grpc-service-name'] = data_get($protocol_settings, 'network_settings.serviceName');
+                if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
+                    $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
             case 'h2':
                 $array['network'] = 'h2';
@@ -367,6 +387,8 @@ class Stash extends AbstractProtocol
                     $array['h2-opts']['host'] = is_array($host) ? $host : [$host];
                 break;
         }
+
+        self::appendMultiplex($array, $protocol_settings);
 
         return $array;
     }
@@ -397,12 +419,16 @@ class Stash extends AbstractProtocol
                 ];
                 break;
             default: // Standard TLS
+                $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
                 if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
                     $array['sni'] = $serverName;
                 }
-                $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
+                self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));
                 break;
         }
+
+        self::appendUtls($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
@@ -414,10 +440,10 @@ class Stash extends AbstractProtocol
                 break;
             case 'ws':
                 $array['network'] = 'ws';
-                $array['ws-opts']['path'] = data_get($protocol_settings, 'network_settings.path');
-                if ($host = data_get($protocol_settings, 'network_settings.headers.Host')) {
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $array['ws-opts']['path'] = $path;
+                if ($host = data_get($protocol_settings, 'network_settings.headers.Host'))
                     $array['ws-opts']['headers'] = ['Host' => $host];
-                }
                 break;
             case 'grpc':
                 $array['network'] = 'grpc';
@@ -582,6 +608,50 @@ class Stash extends AbstractProtocol
             return preg_match($exp, $str);
         } catch (\Exception $e) {
             return false;
+        }
+    }
+
+    protected static function appendMultiplex(&$array, $protocol_settings)
+    {
+        if ($multiplex = data_get($protocol_settings, 'multiplex')) {
+            if (data_get($multiplex, 'enabled')) {
+                $array['smux'] = array_filter([
+                    'enabled' => true,
+                    'protocol' => data_get($multiplex, 'protocol', 'yamux'),
+                    'max-connections' => data_get($multiplex, 'max_connections'),
+                    // 'min-streams' => data_get($multiplex, 'min_streams'),
+                    // 'max-streams' => data_get($multiplex, 'max_streams'),
+                    'padding' => data_get($multiplex, 'padding') ? true : null,
+                ]);
+
+                if (data_get($multiplex, 'brutal.enabled')) {
+                    $array['smux']['brutal-opts'] = [
+                        'enabled' => true,
+                        'up' => data_get($multiplex, 'brutal.up_mbps'),
+                        'down' => data_get($multiplex, 'brutal.down_mbps'),
+                    ];
+                }
+            }
+        }
+    }
+
+    protected static function appendUtls(&$array, $protocol_settings)
+    {
+        if ($utls = data_get($protocol_settings, 'utls')) {
+            if (data_get($utls, 'enabled')) {
+                $array['client-fingerprint'] = Helper::getTlsFingerprint($utls);
+            }
+        }
+    }
+
+    protected static function appendEch(&$array, $ech): void
+    {
+        if ($normalized = Helper::normalizeEchSettings($ech)) {
+            $array['ech-opts'] = array_filter([
+                'enable' => true,
+                'config' => Helper::toMihomoEchConfig(data_get($normalized, 'config')),
+                'query-server-name' => data_get($normalized, 'query_server_name'),
+            ], fn($value) => $value !== null);
         }
     }
 }
