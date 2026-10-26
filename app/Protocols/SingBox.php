@@ -20,6 +20,8 @@ class SingBox extends AbstractProtocol
         Server::TYPE_ANYTLS,
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
+        Server::TYPE_NAIVE,
+        Server::TYPE_MIERU,
     ];
     private $config;
     const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.sing-box.json';
@@ -46,6 +48,9 @@ class SingBox extends AbstractProtocol
                 ]
             ],
             'vmess' => [
+                'protocol_settings.tls' => [
+                    '2' => '1.6.0' // Reality
+                ],
                 'protocol_settings.tls_settings.ech.enabled' => [
                     1 => '1.5.0'
                 ],
@@ -106,6 +111,9 @@ class SingBox extends AbstractProtocol
                     1 => '1.5.0'
                 ]
             ],
+            'mieru' => [
+                'base_version' => '1.12.0'
+            ],
         ]
     ];
 
@@ -152,7 +160,7 @@ class SingBox extends AbstractProtocol
             }
             if (
                 $item['type'] === Server::TYPE_VLESS
-                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http', 'quic', 'httpupgrade'])
+                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http', 'h2', 'quic', 'httpupgrade'])
             ) {
                 $vlessConfig = $this->buildVless($this->user['uuid'], $item);
                 $proxies[] = $vlessConfig;
@@ -176,6 +184,12 @@ class SingBox extends AbstractProtocol
             if ($item['type'] === Server::TYPE_HTTP) {
                 $httpConfig = $this->buildHttp($this->user['uuid'], $item);
                 $proxies[] = $httpConfig;
+            }
+            if ($item['type'] === Server::TYPE_NAIVE) {
+                $proxies[] = $this->buildNaive($this->user['uuid'], $item);
+            }
+            if ($item['type'] === Server::TYPE_MIERU) {
+                $proxies[] = $this->buildMieru($this->user['uuid'], $item);
             }
         }
         foreach ($outbounds as &$outbound) {
@@ -628,17 +642,34 @@ class SingBox extends AbstractProtocol
         ];
 
         if ($protocol_settings['tls']) {
-            $array['tls'] = [
+            $tlsMode = (int) data_get($protocol_settings, 'tls', 0);
+            $tlsConfig = [
                 'enabled' => true,
-                'insecure' => (bool) data_get($protocol_settings, 'tls_settings.allow_insecure'),
+                'insecure' => $tlsMode === 2
+                    ? (bool) data_get($protocol_settings, 'reality_settings.allow_insecure', false)
+                    : (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false),
             ];
 
-            $this->appendUtls($array['tls'], $protocol_settings);
-            $this->appendEch($array['tls'], data_get($protocol_settings, 'tls_settings.ech'));
+            $this->appendUtls($tlsConfig, $protocol_settings);
 
-            if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
-                $array['tls']['server_name'] = $serverName;
+            switch ($tlsMode) {
+                case 1:
+                    $this->appendEch($tlsConfig, data_get($protocol_settings, 'tls_settings.ech'));
+                    if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
+                        $tlsConfig['server_name'] = $serverName;
+                    }
+                    break;
+                case 2:
+                    $tlsConfig['server_name'] = data_get($protocol_settings, 'reality_settings.server_name');
+                    $tlsConfig['reality'] = [
+                        'enabled' => true,
+                        'public_key' => data_get($protocol_settings, 'reality_settings.public_key'),
+                        'short_id' => data_get($protocol_settings, 'reality_settings.short_id')
+                    ];
+                    break;
             }
+
+            $array['tls'] = $tlsConfig;
         }
 
         $this->appendMultiplex($array, $protocol_settings);
@@ -910,6 +941,48 @@ class SingBox extends AbstractProtocol
             }
             $this->appendEch($array['tls'], data_get($protocol_settings, 'tls_settings.ech'));
         }
+
+        return $array;
+    }
+
+    protected function buildNaive($password, $server): array
+    {
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $array = [
+            'type' => 'naive',
+            'tag' => $server['name'],
+            'server' => $server['host'],
+            'server_port' => $server['port'],
+            // 与节点端入站一致：username 为用户 ID，password 为 UUID
+            'username' => (string) ($this->user['id'] ?? ''),
+            'password' => $password,
+        ];
+
+        $array['tls'] = [
+            'enabled' => true,
+            'insecure' => (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false),
+        ];
+        if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
+            $array['tls']['server_name'] = $serverName;
+        }
+
+        return $array;
+    }
+
+    protected function buildMieru($password, $server): array
+    {
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $array = [
+            'type' => 'mieru',
+            'tag' => $server['name'],
+            'server' => $server['host'],
+            'server_port' => $server['port'],
+            'username' => $password,
+            'password' => $password,
+            'transport' => [
+                'type' => strtoupper(data_get($protocol_settings, 'transport', 'TCP')),
+            ],
+        ];
 
         return $array;
     }

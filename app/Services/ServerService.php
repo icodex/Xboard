@@ -254,6 +254,8 @@ class ServerService
         $protocolSettings = $node->protocol_settings;
         $serverPort = $node->server_port;
         $host = $node->host;
+        // 与 generateServerPassword 保持一致：子节点的 SS2022 密钥跟随父节点创建时间
+        $serverCreatedAt = $node->parent_id ? $node->parent->created_at : $node->created_at;
 
         $baseConfig = [
             'protocol' => $nodeType,
@@ -270,15 +272,18 @@ class ServerService
                 'plugin' => $protocolSettings['plugin'],
                 'plugin_opts' => $protocolSettings['plugin_opts'],
                 'server_key' => match ($protocolSettings['cipher']) {
-                        '2022-blake3-aes-128-gcm' => Helper::getServerKey($node->created_at, 16),
-                        '2022-blake3-aes-256-gcm' => Helper::getServerKey($node->created_at, 32),
+                        '2022-blake3-aes-128-gcm' => Helper::getServerKey($serverCreatedAt, 16),
+                        '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305' => Helper::getServerKey($serverCreatedAt, 32),
                         default => null,
                     },
             ],
             'vmess' => [
                 ...$baseConfig,
                 'tls' => (int) $protocolSettings['tls'],
-                'tls_settings' => $protocolSettings['tls_settings'],
+                'tls_settings' => match ((int) $protocolSettings['tls']) {
+                        2 => $protocolSettings['reality_settings'],
+                        default => $protocolSettings['tls_settings'],
+                    },
                 'multiplex' => data_get($protocolSettings, 'multiplex'),
             ],
             'trojan' => [
@@ -331,9 +336,6 @@ class ServerService
                 'server_name' => $protocolSettings['tls']['server_name'],
                 'congestion_control' => $protocolSettings['congestion_control'],
                 'tls_settings' => $protocolSettings['tls'],
-                'auth_timeout' => '3s',
-                'zero_rtt_handshake' => false,
-                'heartbeat' => '3s',
             ],
             'anytls' => [
                 ...$baseConfig,

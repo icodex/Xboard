@@ -15,15 +15,18 @@ class ServerSave extends FormRequest
 
     private const MULTIPLEX_RULES = [
         'multiplex.enabled' => 'nullable|boolean',
-        'multiplex.protocol' => 'nullable|string',
-        'multiplex.max_connections' => 'nullable|integer',
-        'multiplex.min_streams' => 'nullable|integer',
-        'multiplex.max_streams' => 'nullable|integer',
         'multiplex.padding' => 'nullable|boolean',
         'multiplex.brutal.enabled' => 'nullable|boolean',
         'multiplex.brutal.up_mbps' => 'nullable|integer',
         'multiplex.brutal.down_mbps' => 'nullable|integer',
     ];
+
+    // 内核实际消费的传输层；kcp/quic/raw 等节点端无实现
+    private const NETWORK_RULE = 'required|string|in:tcp,ws,grpc,h2,http,httpupgrade,xhttp,splithttp';
+
+    private const TLS_LEVEL_RULE = 'integer|in:0,1,2';
+
+    private const SHADOWSOCKS_CIPHERS = 'in:aes-128-gcm,aes-192-gcm,aes-256-gcm,chacha20-ietf-poly1305,xchacha20-ietf-poly1305,2022-blake3-aes-128-gcm,2022-blake3-aes-256-gcm,2022-blake3-chacha20-poly1305';
 
     private const ECH_RULES = [
         'enabled' => 'nullable|boolean',
@@ -36,6 +39,7 @@ class ServerSave extends FormRequest
         'reality_settings.allow_insecure' => 'nullable|boolean',
         'reality_settings.server_name' => 'nullable|string',
         'reality_settings.server_port' => 'nullable|integer',
+        'reality_settings.dest' => 'nullable|string',
         'reality_settings.public_key' => 'nullable|string',
         'reality_settings.private_key' => 'nullable|string',
         'reality_settings.short_id' => 'nullable|string',
@@ -43,7 +47,7 @@ class ServerSave extends FormRequest
 
     private const PROTOCOL_RULES = [
         'shadowsocks' => [
-            'cipher' => 'required|string',
+            'cipher' => 'required|string|' . self::SHADOWSOCKS_CIPHERS,
             'obfs' => 'nullable|string',
             'obfs_settings.path' => 'nullable|string',
             'obfs_settings.host' => 'nullable|string',
@@ -51,20 +55,20 @@ class ServerSave extends FormRequest
             'plugin_opts' => 'nullable|string',
         ],
         'vmess' => [
-            'tls' => 'required|integer',
-            'network' => 'required|string',
+            'tls' => 'required|' . self::TLS_LEVEL_RULE,
+            'network' => self::NETWORK_RULE,
             'network_settings' => 'nullable|array',
             'rules' => 'nullable|array',
         ],
         'trojan' => [
-            'tls' => 'nullable|integer',
-            'network' => 'required|string',
+            'tls' => 'nullable|' . self::TLS_LEVEL_RULE,
+            'network' => self::NETWORK_RULE,
             'network_settings' => 'nullable|array',
             'server_name' => 'nullable|string',
             'allow_insecure' => 'nullable|boolean',
         ],
         'hysteria' => [
-            'version' => 'required|integer',
+            'version' => 'required|integer|in:1,2',
             'alpn' => 'nullable|string',
             'obfs.open' => 'nullable|boolean',
             'obfs.type' => 'string|nullable',
@@ -74,8 +78,8 @@ class ServerSave extends FormRequest
             'hop_interval' => 'integer|nullable',
         ],
         'vless' => [
-            'tls' => 'required|integer',
-            'network' => 'required|string',
+            'tls' => 'required|' . self::TLS_LEVEL_RULE,
+            'network' => self::NETWORK_RULE,
             'network_settings' => 'nullable|array',
             'flow' => 'nullable|string',
             'encryption' => 'nullable|array',
@@ -84,13 +88,13 @@ class ServerSave extends FormRequest
             'encryption.decryption' => 'nullable|string',
         ],
         'socks' => [
-            'tls' => 'nullable|integer',
+            'tls' => 'nullable|' . self::TLS_LEVEL_RULE,
         ],
         'naive' => [
-            'tls' => 'required|integer',
+            'tls' => 'required|' . self::TLS_LEVEL_RULE,
         ],
         'http' => [
-            'tls' => 'required|integer',
+            'tls' => 'required|' . self::TLS_LEVEL_RULE,
         ],
         'tuic' => [
             'version' => 'nullable|integer',
@@ -150,6 +154,7 @@ class ServerSave extends FormRequest
             'vmess' => array_merge(
                 $rules,
                 $this->buildTlsSettingsRules(),
+                self::REALITY_RULES,
                 self::MULTIPLEX_RULES,
                 self::UTLS_RULES,
             ),

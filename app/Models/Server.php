@@ -163,6 +163,7 @@ class Server extends Model
             'fields' => [
                 'server_name' => ['type' => 'string', 'default' => null],
                 'server_port' => ['type' => 'string', 'default' => null],
+                'dest' => ['type' => 'string', 'default' => null],
                 'public_key' => ['type' => 'string', 'default' => null],
                 'private_key' => ['type' => 'string', 'default' => null],
                 'short_id' => ['type' => 'string', 'default' => null],
@@ -231,6 +232,7 @@ class Server extends Model
             'rules' => ['type' => 'array', 'default' => null],
             'network_settings' => ['type' => 'array', 'default' => null],
             'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
+            ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
             ...self::UTLS_CONFIGURATION
         ],

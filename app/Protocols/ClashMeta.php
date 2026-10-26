@@ -341,8 +341,17 @@ class ClashMeta extends AbstractProtocol
             'udp' => true
         ];
 
-        if (data_get($protocol_settings, 'tls')) {
-            $array['tls'] = (bool) data_get($protocol_settings, 'tls');
+        $tlsMode = (int) data_get($protocol_settings, 'tls');
+        if ($tlsMode === 2) {
+            $array['tls'] = true;
+            $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'reality_settings.allow_insecure', false);
+            $array['servername'] = data_get($protocol_settings, 'reality_settings.server_name');
+            $array['reality-opts'] = [
+                'public-key' => data_get($protocol_settings, 'reality_settings.public_key'),
+                'short-id' => data_get($protocol_settings, 'reality_settings.short_id'),
+            ];
+        } elseif ($tlsMode === 1) {
+            $array['tls'] = true;
             $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
             $array['servername'] = data_get($protocol_settings, 'tls_settings.server_name');
             self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));

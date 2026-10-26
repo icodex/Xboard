@@ -88,10 +88,23 @@ class General extends AbstractProtocol
             "type" => "none",
             "host" => "",
             "path" => "",
-            "tls" => data_get($protocol_settings, 'tls') ? "tls" : "",
         ];
-        if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
-            $config['sni'] = $serverName;
+        switch ((int) data_get($protocol_settings, 'tls')) {
+            case 2:
+                $config['tls'] = 'reality';
+                $config['pbk'] = data_get($protocol_settings, 'reality_settings.public_key');
+                $config['sid'] = data_get($protocol_settings, 'reality_settings.short_id');
+                $config['sni'] = data_get($protocol_settings, 'reality_settings.server_name');
+                break;
+            case 1:
+                $config['tls'] = 'tls';
+                if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
+                    $config['sni'] = $serverName;
+                }
+                break;
+            default:
+                $config['tls'] = '';
+                break;
         }
         if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
             $config['fp'] = $fp;
@@ -215,11 +228,6 @@ class General extends AbstractProtocol
                     $config['path'] = $path;
                 if ($h2Host = data_get($protocol_settings, 'network_settings.host'))
                     $config['host'] = is_array($h2Host) ? implode(',', $h2Host) : $h2Host;
-                break;
-            case 'kcp':
-                if ($path = data_get($protocol_settings, 'network_settings.seed'))
-                    $config['path'] = $path;
-                $config['type'] = data_get($protocol_settings, 'network_settings.header.type', 'none');
                 break;
             case 'httpupgrade':
                 if ($path = data_get($protocol_settings, 'network_settings.path'))
