@@ -27,10 +27,10 @@ class ServerSaveValidationTest extends TestCase
     public function test_network_whitelist_rejects_unsupported_transport(): void
     {
         $errors = $this->validate(['tls' => 0, 'network' => 'kcp'], 'vless')->errors();
-        $this->assertArrayHasKey('protocol_settings.network', $errors);
+        $this->assertTrue($errors->has('protocol_settings.network'));
 
         $errors = $this->validate(['tls' => 1, 'network' => 'raw'], 'vmess')->errors();
-        $this->assertArrayHasKey('protocol_settings.network', $errors);
+        $this->assertTrue($errors->has('protocol_settings.network'));
     }
 
     public function test_network_whitelist_accepts_supported_transports(): void
@@ -44,10 +44,10 @@ class ServerSaveValidationTest extends TestCase
     public function test_tls_level_must_be_0_1_or_2(): void
     {
         $errors = $this->validate(['tls' => 3, 'network' => 'tcp'], 'vless')->errors();
-        $this->assertArrayHasKey('protocol_settings.tls', $errors);
+        $this->assertTrue($errors->has('protocol_settings.tls'));
 
         $errors = $this->validate(['tls' => 3, 'network' => 'tcp'], 'vmess')->errors();
-        $this->assertArrayHasKey('protocol_settings.tls', $errors);
+        $this->assertTrue($errors->has('protocol_settings.tls'));
 
         $this->assertFalse($this->validate(['tls' => 2, 'network' => 'tcp'], 'vless')->fails());
     }
@@ -55,7 +55,7 @@ class ServerSaveValidationTest extends TestCase
     public function test_hysteria_version_must_be_1_or_2(): void
     {
         $errors = $this->validate(['version' => 3], 'hysteria')->errors();
-        $this->assertArrayHasKey('protocol_settings.version', $errors);
+        $this->assertTrue($errors->has('protocol_settings.version'));
 
         $this->assertFalse($this->validate(['version' => 2], 'hysteria')->fails());
     }
@@ -63,7 +63,7 @@ class ServerSaveValidationTest extends TestCase
     public function test_shadowsocks_cipher_whitelist(): void
     {
         $errors = $this->validate(['cipher' => 'aes-128-cfb'], 'shadowsocks')->errors();
-        $this->assertArrayHasKey('protocol_settings.cipher', $errors);
+        $this->assertTrue($errors->has('protocol_settings.cipher'));
 
         foreach ([
             'aes-128-gcm', 'aes-192-gcm', 'aes-256-gcm',

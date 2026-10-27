@@ -31,11 +31,12 @@ class TrafficBatchWriteTest extends TestCase
 
         (new TrafficFetchJob($this->serverArr(), $data, 'vmess', strtotime(date('Y-m-d'))))->handle();
 
-        $expected = [200, 600, 0];
+        // [u, d] per user after rate 2 applied
+        $expected = [[200, 400], [600, 800], [0, 0]];
         foreach (array_values($this->userIds) as $i => $uid) {
             $row = User::findOrFail($uid);
-            $this->assertSame($expected[$i], (int) $row->u, "user {$uid} u");
-            $this->assertSame($expected[$i] * 2, (int) $row->d, "user {$uid} d");
+            $this->assertSame($expected[$i][0], (int) $row->u, "user {$uid} u");
+            $this->assertSame($expected[$i][1], (int) $row->d, "user {$uid} d");
             $this->assertGreaterThan(0, (int) $row->t);
         }
     }
