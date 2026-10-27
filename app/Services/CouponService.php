@@ -32,7 +32,7 @@ class CouponService
                 $order->discount_amount = $this->coupon->value;
                 break;
             case 2:
-                $order->discount_amount = $order->total_amount * ($this->coupon->value / 100);
+                $order->discount_amount = (int) round($order->total_amount * ($this->coupon->value / 100));
                 break;
         }
         if ($order->discount_amount > $order->total_amount) {

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\ApiException;
 use App\Jobs\OrderHandleJob;
+use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Models\TrafficResetLog;
@@ -87,7 +88,7 @@ class OrderService
                 'plan_id' => $plan->id,
                 'period' => $newPeriod,
                 'trade_no' => Helper::generateOrderNo(),
-                'total_amount' => (int) (optional($plan->prices)[$newPeriod] * 100),
+                'total_amount' => (int) round(optional($plan->prices)[$newPeriod] * 100),
             ]);
 
             $orderService = new self($order);
@@ -214,7 +215,7 @@ class OrderService
     {
         $order = $this->order;
         if ($user->discount) {
-            $order->discount_amount = $order->discount_amount + ($order->total_amount * ($user->discount / 100));
+            $order->discount_amount = $order->discount_amount + (int) round($order->total_amount * ($user->discount / 100));
         }
         $order->total_amount = $order->total_amount - $order->discount_amount;
     }
@@ -245,9 +246,9 @@ class OrderService
         if (!$isCommission)
             return;
         if ($inviter->commission_rate) {
-            $order->commission_balance = $order->total_amount * ($inviter->commission_rate / 100);
+            $order->commission_balance = (int) round($order->total_amount * ($inviter->commission_rate / 100));
         } else {
-            $order->commission_balance = $order->total_amount * (admin_setting('invite_commission', 10) / 100);
+            $order->commission_balance = (int) round($order->total_amount * (admin_setting('invite_commission', 10) / 100));
         }
     }
 
@@ -277,7 +278,7 @@ class OrderService
             $trafficUnitPrice = $paidTotalAmount / $nowUserTraffic;
             $notUsedTraffic = $nowUserTraffic - Helper::transferToGB($user->u + $user->d);
             $result = $trafficUnitPrice * $notUsedTraffic;
-            $order->surplus_amount = (int) ($result > 0 ? $result : 0);
+            $order->surplus_amount = (int) round($result > 0 ? $result : 0);
             $order->surplus_order_ids = Order::where('user_id', $user->id)
                 ->where('period', '!=', Plan::PERIOD_RESET_TRAFFIC)
                 ->where('status', Order::STATUS_COMPLETED)
@@ -318,7 +319,7 @@ class OrderService
             }
 
 
-            $order->surplus_amount = (int) max(0, $orderAmountSum * $ratio);
+            $order->surplus_amount = (int) round(max(0, $orderAmountSum * $ratio));
             $order->surplus_order_ids = $orders->pluck('id')->all();
         }
     }
@@ -377,6 +378,10 @@ class OrderService
                     if (!$userService->addBalance($order->user_id, $order->balance_amount)) {
                         throw new \RuntimeException('Failed to add balance.');
                     }
+                }
+                // refund a counted coupon use so it is not burned by the cancel
+                if ($order->coupon_id) {
+                    Coupon::where('id', $order->coupon_id)->whereNotNull('limit_use')->increment('limit_use');
                 }
 
                 return $order;
