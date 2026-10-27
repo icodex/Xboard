@@ -48,10 +48,14 @@ class ClientController extends Controller
             return response('', 403, ['Content-Type' => 'text/plain']);
         }
 
+        // request-scoped seed for Helper::getTlsFingerprint (same pattern as hook.* bindings)
+        app()->instance('client.subscribe.user', $user);
+
         $response = $this->doSubscribe($request, $user);
-        // clients poll this URL constantly; bodies embed per-request fingerprints,
-        // so ETag would never match — only a max-age window helps
+        // fp is now stable per user+node, so the body is identical across polls
+        $response->setEtag(md5($response->getContent()));
         $response->headers->set('Cache-Control', 'public, max-age=300');
+        $response->isNotModified($request);
         return $response;
     }
 

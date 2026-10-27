@@ -204,6 +204,12 @@ class Helper
         }
 
         $fingerprints = ['chrome', 'firefox', 'safari', 'ios', 'edge', 'qq'];
+        // ClientController binds the subscribing user; a stable per-user choice keeps
+        // subscription bodies identical across polls so ETags can match
+        $subscriber = app()->bound('client.subscribe.user') ? app('client.subscribe.user') : null;
+        if ($subscriber !== null && isset($subscriber['token'])) {
+            return $fingerprints[hexdec(substr(md5($subscriber['token']), 0, 8)) % count($fingerprints)];
+        }
         return Arr::random($fingerprints);
     }
 
