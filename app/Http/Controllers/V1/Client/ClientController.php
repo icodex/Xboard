@@ -48,7 +48,11 @@ class ClientController extends Controller
             return response('', 403, ['Content-Type' => 'text/plain']);
         }
 
-        return $this->doSubscribe($request, $user);
+        $response = $this->doSubscribe($request, $user);
+        // clients poll this URL constantly; bodies embed per-request fingerprints,
+        // so ETag would never match — only a max-age window helps
+        $response->headers->set('Cache-Control', 'public, max-age=300');
+        return $response;
     }
 
     public function doSubscribe(Request $request, $user, $servers = null)

@@ -44,6 +44,14 @@ class CheckOrder extends Command
     public function handle()
     {
         Order::whereIn('status', [Order::STATUS_PENDING, Order::STATUS_PROCESSING])
+            // fresh pending orders only need a job once they are old enough to cancel
+            ->where(function ($query) {
+                $query->where('status', Order::STATUS_PROCESSING)
+                    ->orWhere(function ($q) {
+                        $q->where('status', Order::STATUS_PENDING)
+                            ->where('created_at', '<=', time() - 3600 * 2);
+                    });
+            })
             ->orderBy('created_at', 'ASC')
             ->lazyById(200)
             ->each(function ($order) {

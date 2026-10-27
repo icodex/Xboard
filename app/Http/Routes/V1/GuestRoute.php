@@ -15,13 +15,13 @@ class GuestRoute
             'prefix' => 'guest'
         ], function ($router) {
             // Plan
-            $router->get('/plan/fetch', [PlanController::class, 'fetch']);
+            $router->get('/plan/fetch', [PlanController::class, 'fetch'])->middleware('throttle:60,1');
             // Telegram
-            $router->post('/telegram/webhook', [TelegramController::class, 'webhook']);
+            $router->post('/telegram/webhook', [TelegramController::class, 'webhook'])->middleware('throttle:300,1');
             // Payment
-            $router->match(['get', 'post'], '/payment/notify/{method}/{uuid}', [PaymentController::class, 'notify']);
+            $router->match(['get', 'post'], '/payment/notify/{method}/{uuid}', [PaymentController::class, 'notify'])->middleware('throttle:300,1');
             // Comm
-            $router->get('/comm/config', [CommController::class, 'config']);
+            $router->get('/comm/config', [CommController::class, 'config'])->middleware('throttle:60,1');
         });
     }
 }
