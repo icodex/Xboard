@@ -133,7 +133,9 @@ class Plugin extends AbstractPlugin implements PaymentInterface
 
         return [
             'trade_no' => $params['out_trade_no'],
-            'callback_no' => $params['trade_no']
+            'callback_no' => $params['trade_no'],
+            // amount in cents for the panel-side order amount check
+            'amount' => (int) ($params['total_amount'] ?? 0),
         ];
     }
 }

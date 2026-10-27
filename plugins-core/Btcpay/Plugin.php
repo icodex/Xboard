@@ -81,9 +81,8 @@ class Plugin extends AbstractPlugin implements PaymentInterface
     public function notify($params): array|bool
     {
         $payload = trim(request()->getContent());
-        $headers = getallheaders();
-        $headerName = 'Btcpay-Sig';
-        $signraturHeader = isset($headers[$headerName]) ? $headers[$headerName] : '';
+        // getallheaders() does not exist under Octane/Swoole; read via the request
+        $signraturHeader = (string) request()->header('Btcpay-Sig', '');
         $json_param = json_decode($payload, true);
 
         $computedSignature = "sha256=" . \hash_hmac('sha256', $payload, $this->getConfig('btcpay_webhook_key'));
@@ -102,12 +101,20 @@ class Plugin extends AbstractPlugin implements PaymentInterface
         $invoiceDetail = file_get_contents($this->getConfig('btcpay_url') . 'api/v1/stores/' . $this->getConfig('btcpay_storeId') . '/invoices/' . $json_param['invoiceId'], false, $context);
         $invoiceDetail = json_decode($invoiceDetail, true);
 
+        // the webhook fires for created/expired/unpaid invoices too (same valid
+        // signature), so trust only the invoice status fetched with the API key
+        if (!isset($invoiceDetail['status']) || !in_array($invoiceDetail['status'], ['Settled', 'Complete'], true)) {
+            throw new ApiException('Invoice is not settled: ' . ($invoiceDetail['status'] ?? 'unknown'), 400);
+        }
+
         $out_trade_no = $invoiceDetail['metadata']["orderId"];
         $pay_trade_no = $json_param['invoiceId'];
-        
+
         return [
             'trade_no' => $out_trade_no,
-            'callback_no' => $pay_trade_no
+            'callback_no' => $pay_trade_no,
+            // amount in cents for the panel-side order amount check
+            'amount' => (int) round((float) ($invoiceDetail['price'] ?? 0) * 100),
         ];
     }
 

@@ -23,7 +23,7 @@ class PaymentController extends Controller
                 return $this->fail([422, 'verify error']);
             }
             HookManager::call('payment.notify.verified', $verify);
-            if (!$this->handle($verify['trade_no'], $verify['callback_no'])) {
+            if (!$this->handle($verify['trade_no'], $verify['callback_no'], $verify['amount'] ?? null)) {
                 return $this->fail([400, 'handle error']);
             }
             return (isset($verify['custom_result']) ? $verify['custom_result'] : 'success');
@@ -33,7 +33,7 @@ class PaymentController extends Controller
         }
     }
 
-    private function handle($tradeNo, $callbackNo)
+    private function handle($tradeNo, $callbackNo, $paidAmount = null)
     {
         $order = Order::where('trade_no', $tradeNo)->first();
         if (!$order) {
@@ -41,6 +41,19 @@ class PaymentController extends Controller
         }
         if ($order->status !== Order::STATUS_PENDING)
             return true;
+        // gateway plugins report the verified paid amount in cents; a mismatch
+        // (partial payment, tampered checkout) must never open the order
+        if ($paidAmount !== null) {
+            $expectedAmount = $order->total_amount + (int) ($order->handling_amount ?? 0);
+            if ((int) $paidAmount !== $expectedAmount) {
+                Log::warning('Payment amount mismatch', [
+                    'trade_no' => $tradeNo,
+                    'expected' => $expectedAmount,
+                    'paid' => (int) $paidAmount,
+                ]);
+                return $this->fail([400203, 'paid amount mismatch']);
+            }
+        }
         $orderService = new OrderService($order);
         if (!$orderService->paid($callbackNo)) {
             return false;

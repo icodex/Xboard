@@ -81,14 +81,12 @@ class Plugin extends AbstractPlugin implements PaymentInterface
             throw new ApiException('No or incorrect Merchant ID passed');
         }
 
-        $headers = getallheaders();
-
         ksort($params);
         reset($params);
         $request = stripslashes(http_build_query($params));
 
-        $headerName = 'Hmac';
-        $signHeader = isset($headers[$headerName]) ? $headers[$headerName] : '';
+        // getallheaders() does not exist under Octane/Swoole; read via the request
+        $signHeader = (string) request()->header('Hmac', '');
 
         $hmac = hash_hmac("sha512", $request, trim($this->getConfig('coinpayments_ipn_secret')));
 
@@ -101,7 +99,9 @@ class Plugin extends AbstractPlugin implements PaymentInterface
             return [
                 'trade_no' => $params['item_number'],
                 'callback_no' => $params['txn_id'],
-                'custom_result' => 'IPN OK'
+                'custom_result' => 'IPN OK',
+                // amount in cents for the panel-side order amount check
+                'amount' => (int) round((float) ($params['amountf'] ?? 0) * 100),
             ];
         } else if ($status < 0) {
             throw new ApiException('Payment Timed Out or Error');

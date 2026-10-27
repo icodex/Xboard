@@ -81,21 +81,29 @@ class Plugin extends AbstractPlugin implements PaymentInterface
         $payload = trim(request()->getContent());
         $json_param = json_decode($payload, true);
 
-        $headerName = 'X-Cc-Webhook-Signature';
-        $headers = getallheaders();
-        $signatureHeader = isset($headers[$headerName]) ? $headers[$headerName] : '';
+        // getallheaders() does not exist under Octane/Swoole; read via the request
+        $signatureHeader = (string) request()->header('X-Cc-Webhook-Signature', '');
         $computedSignature = \hash_hmac('sha256', $payload, $this->getConfig('coinbase_webhook_key'));
 
         if (!$this->hashEqual($signatureHeader, $computedSignature)) {
             throw new ApiException('HMAC signature does not match', 400);
         }
 
+        // only a paid charge may open the order; created/expired/failed webhooks
+        // carry an equally valid signature
+        $eventType = $json_param['event']['type'] ?? '';
+        if (!in_array($eventType, ['charge:confirmed', 'charge:settled'], true)) {
+            throw new ApiException('Charge is not confirmed: ' . $eventType, 400);
+        }
+
         $out_trade_no = $json_param['event']['data']['metadata']['outTradeNo'];
         $pay_trade_no = $json_param['event']['id'];
-        
+
         return [
             'trade_no' => $out_trade_no,
-            'callback_no' => $pay_trade_no
+            'callback_no' => $pay_trade_no,
+            // amount in cents for the panel-side order amount check
+            'amount' => (int) round((float) ($json_param['event']['data']['pricing']['local']['amount'] ?? 0) * 100),
         ];
     }
 
