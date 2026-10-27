@@ -26,6 +26,8 @@ class ServerObserver
             'custom_outbounds',
             'custom_routes',
             'cert_config',
+            'host',
+            'parent_id',
         ])) {
             NodeSyncService::notifyConfigUpdated($server->id);
         }
