@@ -90,7 +90,7 @@ class KnowledgeController extends Controller
             $this->formatAccessData($knowledge['body']);
         }
         $subscribeUrl = Helper::getSubscribeUrl($user['token']);
-        $knowledge['body'] = $this->replacePlaceholders($knowledge['body'], $subscribeUrl);
+        $knowledge['body'] = $this->replacePlaceholders((string) $knowledge['body'], $subscribeUrl);
 
         return $knowledge;
     }

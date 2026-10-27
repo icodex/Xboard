@@ -15,7 +15,7 @@ class CheckTrafficExceeded extends Command
 
     public function handle()
     {
-        $count = Redis::scard('traffic:pending_check');
+        $count = (int) Redis::scard('traffic:pending_check');
         if ($count <= 0) {
             return;
         }

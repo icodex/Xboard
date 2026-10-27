@@ -1,0 +1,121 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Parameter &\$body by\-ref type of method App\\Http\\Controllers\\V1\\User\\KnowledgeController\:\:applyReplacementRules\(\) expects string, string\|null given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: app/Http/Controllers/V1/User/KnowledgeController.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: app/Http/Controllers/V1/User/UserController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>content" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/V2/Admin/MailTemplateController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>subject" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/V2/Admin/MailTemplateController.php
+
+		-
+			message: '#^Relation ''admin'' is not found in App\\Models\\AdminAuditLog model\.$#'
+			identifier: larastan.relationExistence
+			count: 1
+			path: app/Http/Controllers/V2/Admin/SystemController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/V2/Admin/UserController.php
+
+		-
+			message: '#^Variable \$config on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: app/Http/Controllers/V2/Client/AppController.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 2
+			path: app/Models/TicketMessage.php
+
+		-
+			message: '#^Variable \$extra in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 3
+			path: app/Protocols/General.php
+
+		-
+			message: '#^Parameter \#1 \$array \(array\{0\: non\-falsy\-string, 1\: non\-falsy\-string, 2\: ''udp\-relay\=true'', 3\: non\-falsy\-string, 4\: ''over\-tls\=true'', 5\?\: non\-falsy\-string, 6\?\: non\-falsy\-string\}\) to function array_filter does not contain falsy values, the array will always stay the same\.$#'
+			identifier: arrayFilter.same
+			count: 1
+			path: app/Protocols/QuantumultX.php
+
+		-
+			message: '#^Call to function is_array\(\) with string\|null will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: app/Protocols/SingBox.php
+
+		-
+			message: '#^Offset ''path'' on non\-empty\-array\<string, string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Protocols/Stash.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between bool\|string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Protocols/Stash.php
+
+		-
+			message: '#^Offset 1 on array\{0\: non\-falsy\-string, 1\: non\-empty\-string, 2\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/MailService.php
+
+		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$machineNodeIds\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/NodeRegistry.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: app/Utils/Helper.php
+
+		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$authTimer\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/WebSocket/NodeWorker.php
+
+		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$machineId\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/WebSocket/NodeWorker.php
+
+		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$machineNodeIds\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/WebSocket/NodeWorker.php
+
+		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$nodeId\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/WebSocket/NodeWorker.php

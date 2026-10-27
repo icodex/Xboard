@@ -5,6 +5,7 @@ namespace App\Protocols;
 use App\Utils\Helper;
 use App\Support\AbstractProtocol;
 use App\Models\Server;
+use Illuminate\Support\Facades\File;
 
 class QuantumultX extends AbstractProtocol
 {
@@ -30,6 +31,7 @@ class QuantumultX extends AbstractProtocol
 
         $proxies = '';
         $proxyGroup = '';
+        $uri = '';
 
         foreach ($servers as $item) {
             $uri .= match ($item['type']) {

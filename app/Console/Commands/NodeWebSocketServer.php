@@ -26,7 +26,7 @@ class NodeWebSocketServer extends Command
         }
 
         $host = $this->option('host');
-        $port = $this->option('port');
+        $port = (int) ($this->option('port') ?? 8076);
 
         $worker = new NodeWorker($host, $port);
         $worker->run();

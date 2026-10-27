@@ -10,7 +10,6 @@ class DeviceStateService
 {
     private const PREFIX = 'user_devices:';
     private const TTL = 300;                     // device state ttl
-    private const DB_THROTTLE = 10;             // update db throttle
 
     /**
      * 移除 Redis key 的前缀
@@ -117,7 +116,7 @@ class DeviceStateService
         $ips = [];
 
         foreach ($data as $field => $timestamp) {
-            if ($now - $timestamp <= self::TTL) {
+            if ($now - (int) $timestamp <= self::TTL) {
                 $ips[] = substr($field, strpos($field, ':') + 1);
             }
         }
@@ -157,7 +156,7 @@ class DeviceStateService
             if (!empty($data)) {
                 $ips = [];
                 foreach ($data as $field => $timestamp) {
-                    if ($now - $timestamp <= self::TTL) {
+                    if ($now - (int) $timestamp <= self::TTL) {
                         $ips[] = substr($field, strpos($field, ':') + 1);
                     }
                 }

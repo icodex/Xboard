@@ -84,7 +84,7 @@ class ServerService
 
     /**
      * 根据权限组获取可用的用户列表
-     * @param array $groupIds
+     * @param Server $node
      * @return Collection
      */
     public static function getAvailableUsers(Server $node)
