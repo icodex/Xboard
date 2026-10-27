@@ -101,6 +101,9 @@ class General extends AbstractProtocol
                 if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
                     $config['sni'] = $serverName;
                 }
+                if (data_get($protocol_settings, 'tls_settings.allow_insecure')) {
+                    $config['allowInsecure'] = true;
+                }
                 break;
             default:
                 $config['tls'] = '';
