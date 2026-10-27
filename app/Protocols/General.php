@@ -106,7 +106,7 @@ class General extends AbstractProtocol
                 $config['tls'] = '';
                 break;
         }
-        if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
+        if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
             $config['fp'] = $fp;
         }
 
@@ -186,7 +186,7 @@ class General extends AbstractProtocol
         switch (data_get($server, 'protocol_settings.tls')) {
             case 1:
                 $config['security'] = "tls";
-                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
                     $config['fp'] = $fp;
                 }
                 if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
@@ -203,7 +203,7 @@ class General extends AbstractProtocol
                 $config['sni'] = data_get($protocol_settings, 'reality_settings.server_name');
                 $config['servername'] = data_get($protocol_settings, 'reality_settings.server_name');
                 $config['spx'] = "/";
-                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
                     $config['fp'] = $fp;
                 }
                 break;
@@ -265,7 +265,7 @@ class General extends AbstractProtocol
                 $array['pbk'] = data_get($protocol_settings, 'reality_settings.public_key');
                 $array['sid'] = data_get($protocol_settings, 'reality_settings.short_id');
                 $array['sni'] = data_get($protocol_settings, 'reality_settings.server_name');
-                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
                     $array['fp'] = $fp;
                 }
                 break;
@@ -275,7 +275,7 @@ class General extends AbstractProtocol
                     $array['peer'] = $serverName;
                     $array['sni'] = $serverName;
                 }
-                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'))) {
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
                     $array['fp'] = $fp;
                 }
                 break;

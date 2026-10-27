@@ -190,7 +190,7 @@ class Helper
         return gethostbynamel($domain) ?: [];
     }
     
-    public static function getTlsFingerprint($utls = null)
+    public static function getTlsFingerprint($utls = null, ?string $seed = null)
     {
 
         if (is_array($utls) || is_object($utls)) {
@@ -204,11 +204,10 @@ class Helper
         }
 
         $fingerprints = ['chrome', 'firefox', 'safari', 'ios', 'edge', 'qq'];
-        // ClientController binds the subscribing user; a stable per-user choice keeps
-        // subscription bodies identical across polls so ETags can match
-        $subscriber = app()->bound('client.subscribe.user') ? app('client.subscribe.user') : null;
-        if ($subscriber !== null && isset($subscriber['token'])) {
-            return $fingerprints[hexdec(substr(md5($subscriber['token']), 0, 8)) % count($fingerprints)];
+        // AbstractProtocol bakes _fp_seed (user token + node id) into each server,
+        // keeping the choice stable so subscription bodies and ETags stay identical
+        if ($seed !== null) {
+            return $fingerprints[hexdec(substr(md5($seed), 0, 8)) % count($fingerprints)];
         }
         return Arr::random($fingerprints);
     }

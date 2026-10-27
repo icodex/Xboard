@@ -64,6 +64,13 @@ abstract class AbstractProtocol
         $this->userAgent = $userAgent;
         $this->protocolRequirements = $this->normalizeProtocolRequirements($this->protocolRequirements);
         $this->servers = HookManager::filter('protocol.servers.filtered', $this->filterServersByVersion());
+        // stable per-user+node seed for Helper::getTlsFingerprint (deterministic subscription bodies);
+        // must run after the hook so a replaced server list still gets seeds
+        $fpToken = (string) ($this->user['token'] ?? '');
+        foreach ($this->servers as &$item) {
+            $item['_fp_seed'] = $fpToken . ($item['id'] ?? '');
+        }
+        unset($item);
     }
 
     /**

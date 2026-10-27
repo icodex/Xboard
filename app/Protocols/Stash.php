@@ -272,7 +272,7 @@ class Stash extends AbstractProtocol
             self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));
         }
 
-        self::appendUtls($array, $protocol_settings);
+        self::appendUtls($array, $protocol_settings, $server);
         self::appendMultiplex($array, $protocol_settings);
 
         switch (data_get($protocol_settings, 'network')) {
@@ -345,7 +345,7 @@ class Stash extends AbstractProtocol
                     $array['servername'] = $serverName;
                 }
                 self::appendEch($array, data_get($protocol_settings, 'tls_settings.ech'));
-                self::appendUtls($array, $protocol_settings);
+                self::appendUtls($array, $protocol_settings, $server);
                 break;
             case 2:
                 $array['tls'] = true;
@@ -355,7 +355,7 @@ class Stash extends AbstractProtocol
                     'public-key' => data_get($protocol_settings, 'reality_settings.public_key'),
                     'short-id' => data_get($protocol_settings, 'reality_settings.short_id')
                 ];
-                self::appendUtls($array, $protocol_settings);
+                self::appendUtls($array, $protocol_settings, $server);
                 break;
         }
 
@@ -436,7 +436,7 @@ class Stash extends AbstractProtocol
                 break;
         }
 
-        self::appendUtls($array, $protocol_settings);
+        self::appendUtls($array, $protocol_settings, $server);
         self::appendMultiplex($array, $protocol_settings);
 
         switch (data_get($protocol_settings, 'network')) {
@@ -644,11 +644,11 @@ class Stash extends AbstractProtocol
         }
     }
 
-    protected static function appendUtls(&$array, $protocol_settings)
+    protected static function appendUtls(&$array, $protocol_settings, $server = null)
     {
         if ($utls = data_get($protocol_settings, 'utls')) {
             if (data_get($utls, 'enabled')) {
-                $array['client-fingerprint'] = Helper::getTlsFingerprint($utls);
+                $array['client-fingerprint'] = Helper::getTlsFingerprint($utls, $server['_fp_seed'] ?? null);
             }
         }
     }

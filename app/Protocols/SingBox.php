@@ -650,7 +650,7 @@ class SingBox extends AbstractProtocol
                     : (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false),
             ];
 
-            $this->appendUtls($tlsConfig, $protocol_settings);
+            $this->appendUtls($tlsConfig, $protocol_settings, $server);
 
             switch ($tlsMode) {
                 case 1:
@@ -704,7 +704,7 @@ class SingBox extends AbstractProtocol
                     : (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false),
             ];
 
-            $this->appendUtls($tlsConfig, $protocol_settings);
+            $this->appendUtls($tlsConfig, $protocol_settings, $server);
 
             switch ($tlsMode) {
                 case 1:
@@ -768,7 +768,7 @@ class SingBox extends AbstractProtocol
                 break;
         }
 
-        $this->appendUtls($tlsConfig, $protocol_settings);
+        $this->appendUtls($tlsConfig, $protocol_settings, $server);
         $array['tls'] = $tlsConfig;
 
         $this->appendMultiplex($array, $protocol_settings);
@@ -1052,13 +1052,13 @@ class SingBox extends AbstractProtocol
         }
     }
 
-    protected function appendUtls(&$tlsConfig, $protocol_settings)
+    protected function appendUtls(&$tlsConfig, $protocol_settings, $server = null)
     {
         if ($utls = data_get($protocol_settings, 'utls')) {
             if (data_get($utls, 'enabled')) {
                 $tlsConfig['utls'] = [
                     'enabled' => true,
-                    'fingerprint' => Helper::getTlsFingerprint($utls)
+                    'fingerprint' => Helper::getTlsFingerprint($utls, $server['_fp_seed'] ?? null)
                 ];
             }
         }
