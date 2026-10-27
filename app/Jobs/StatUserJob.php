@@ -51,26 +51,95 @@ class StatUserJob implements ShouldQueue
             ? strtotime(date('Y-m-01'))
             : strtotime(date('Y-m-d'));
 
-        foreach ($this->data as $uid => $v) {
+        if (config('database.default') === 'sqlite') {
+            foreach ($this->data as $uid => $v) {
+                $this->processUserStatForSqlite($uid, $v, $recordAt);
+            }
+            return;
+        }
+
+        // one multi-row upsert per 500 users instead of one statement each
+        foreach (array_chunk($this->data, 500, true) as $chunk) {
             try {
-                $this->processUserStat($uid, $v, $recordAt);
+                if (config('database.default') === 'pgsql') {
+                    $this->processUserStatForPostgres($chunk, $recordAt);
+                } else {
+                    $this->processUserStatForOtherDatabases($chunk, $recordAt);
+                }
             } catch (\Exception $e) {
-                Log::error('StatUserJob failed for user ' . $uid . ': ' . $e->getMessage());
+                Log::error('StatUserJob failed: ' . $e->getMessage());
                 throw $e;
             }
         }
     }
 
-    protected function processUserStat(int $uid, array $v, int $recordAt): void
+    /**
+     * Multi-row upsert for PostgreSQL with arithmetic increments.
+     */
+    protected function processUserStatForPostgres(array $chunk, int $recordAt): void
     {
-        $driver = config('database.default');
-        if ($driver === 'sqlite') {
-            $this->processUserStatForSqlite($uid, $v, $recordAt);
-        } elseif ($driver === 'pgsql') {
-            $this->processUserStatForPostgres($uid, $v, $recordAt);
-        } else {
-            $this->processUserStatForOtherDatabases($uid, $v, $recordAt);
+        $table = (new StatUser())->getTable();
+        $now = time();
+        $rows = [];
+        $bindings = [];
+        foreach ($chunk as $uid => $v) {
+            $rows[] = '(?, ?, ?, ?, ?, ?, ?, ?)';
+            array_push(
+                $bindings,
+                $uid,
+                $this->server['rate'],
+                $recordAt,
+                $this->recordType,
+                intval($v[0] * $this->server['rate']),
+                intval($v[1] * $this->server['rate']),
+                $now,
+                $now,
+            );
         }
+
+        $sql = "INSERT INTO {$table} (user_id, server_rate, record_at, record_type, u, d, created_at, updated_at)
+                VALUES " . implode(',', $rows) . "
+                ON CONFLICT (user_id, server_rate, record_at)
+                DO UPDATE SET
+                    u = {$table}.u + EXCLUDED.u,
+                    d = {$table}.d + EXCLUDED.d,
+                    updated_at = EXCLUDED.updated_at";
+
+        DB::statement($sql, $bindings);
+    }
+
+    /**
+     * Multi-row upsert for MySQL / MariaDB.
+     */
+    protected function processUserStatForOtherDatabases(array $chunk, int $recordAt): void
+    {
+        $table = (new StatUser())->getTable();
+        $now = time();
+        $rows = [];
+        $bindings = [];
+        foreach ($chunk as $uid => $v) {
+            $rows[] = '(?, ?, ?, ?, ?, ?, ?, ?)';
+            array_push(
+                $bindings,
+                $uid,
+                $this->server['rate'],
+                $recordAt,
+                $this->recordType,
+                intval($v[0] * $this->server['rate']),
+                intval($v[1] * $this->server['rate']),
+                $now,
+                $now,
+            );
+        }
+
+        $sql = "INSERT INTO {$table} (user_id, server_rate, record_at, record_type, u, d, created_at, updated_at)
+                VALUES " . implode(',', $rows) . "
+                ON DUPLICATE KEY UPDATE
+                    u = u + VALUES(u),
+                    d = d + VALUES(d),
+                    updated_at = VALUES(updated_at)";
+
+        DB::statement($sql, $bindings);
     }
 
     protected function processUserStatForSqlite(int $uid, array $v, int $recordAt): void
@@ -102,59 +171,5 @@ class StatUserJob implements ShouldQueue
                 ]);
             }
         }, 3);
-    }
-
-    protected function processUserStatForOtherDatabases(int $uid, array $v, int $recordAt): void
-    {
-        StatUser::upsert(
-            [
-                'user_id' => $uid,
-                'server_rate' => $this->server['rate'],
-                'record_at' => $recordAt,
-                'record_type' => $this->recordType,
-                'u' => intval($v[0] * $this->server['rate']),
-                'd' => intval($v[1] * $this->server['rate']),
-                'created_at' => time(),
-                'updated_at' => time(),
-            ],
-            // unique key must match the schema: record_type is NOT part of the
-            // v2_stat_user unique index, so monthly rows would merge into daily
-            ['user_id', 'server_rate', 'record_at'],
-            [
-                'u' => DB::raw("u + VALUES(u)"),
-                'd' => DB::raw("d + VALUES(d)"),
-                'updated_at' => time(),
-            ]
-        );
-    }
-
-    /**
-     * PostgreSQL upsert with arithmetic increments using ON CONFLICT ... DO UPDATE
-     */
-    protected function processUserStatForPostgres(int $uid, array $v, int $recordAt): void
-    {
-        $table = (new StatUser())->getTable();
-        $now = time();
-        $u = intval($v[0] * $this->server['rate']);
-        $d = intval($v[1] * $this->server['rate']);
-
-        $sql = "INSERT INTO {$table} (user_id, server_rate, record_at, record_type, u, d, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (user_id, server_rate, record_at)
-                DO UPDATE SET
-                    u = {$table}.u + EXCLUDED.u,
-                    d = {$table}.d + EXCLUDED.d,
-                    updated_at = EXCLUDED.updated_at";
-
-        DB::statement($sql, [
-            $uid,
-            $this->server['rate'],
-            $recordAt,
-            $this->recordType,
-            $u,
-            $d,
-            $now,
-            $now,
-        ]);
     }
 }
