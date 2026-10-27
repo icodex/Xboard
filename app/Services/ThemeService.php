@@ -110,6 +110,15 @@ class ThemeService
                 throw new Exception('Invalid theme package');
             }
 
+            // zip-slip guard: entries must stay inside the extraction directory
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $entry = $zip->getNameIndex($i);
+                if ($entry === false || str_contains($entry, '..') || str_starts_with($entry, '/') || str_contains($entry, '\\')) {
+                    $zip->close();
+                    throw new Exception('Theme package contains illegal path entries');
+                }
+            }
+
             $configEntry = collect(range(0, $zip->numFiles - 1))
                 ->map(fn($i) => $zip->getNameIndex($i))
                 ->first(fn($name) => basename($name) === self::CONFIG_FILE);
@@ -263,6 +272,12 @@ class ThemeService
      */
     public function getThemePath(string $theme): ?string
     {
+        // $theme comes from admin requests and is concatenated into paths;
+        // themes are plain directory names, reject anything else
+        if (!preg_match('/^[\w-]+$/', $theme)) {
+            return null;
+        }
+
         $systemPath = base_path(self::SYSTEM_THEME_DIR . $theme);
         if (File::exists($systemPath)) {
             return $systemPath;

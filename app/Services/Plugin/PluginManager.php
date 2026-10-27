@@ -540,6 +540,15 @@ class PluginManager
             throw new \Exception('无法打开插件包文件');
         }
 
+        // zip-slip guard: entries must stay inside the extraction directory
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entry = $zip->getNameIndex($i);
+            if ($entry === false || str_contains($entry, '..') || str_starts_with($entry, '/') || str_contains($entry, '\\')) {
+                $zip->close();
+                throw new \Exception('插件包含非法路径条目');
+            }
+        }
+
         $zip->extractTo($extractPath);
         $zip->close();
 
