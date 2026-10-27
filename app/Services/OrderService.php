@@ -120,6 +120,12 @@ class OrderService
 
     public function open(): void
     {
+        // fires before the row lock so plugins doing slow I/O cannot stall payment handling;
+        // throwing here still aborts the open
+        if (Order::whereKey($this->order->id)->where('status', Order::STATUS_PROCESSING)->exists()) {
+            HookManager::call('order.open.before', $this->order);
+        }
+
         $openedOrder = DB::transaction(function () {
             $order = $this->lockCurrentOrderWhenStatus(Order::STATUS_PROCESSING);
             if (!$order) {
@@ -130,8 +136,6 @@ class OrderService
             if (!$plan) {
                 throw new \RuntimeException('订阅不存在');
             }
-
-            HookManager::call('order.open.before', $order);
 
             $this->user = User::lockForUpdate()->find($order->user_id);
 
@@ -361,13 +365,17 @@ class OrderService
     public function cancel(): bool
     {
         try {
+            // fires before the row lock so plugins doing slow I/O cannot stall the order row;
+            // throwing here still aborts the cancel
+            if (Order::whereKey($this->order->id)->where('status', Order::STATUS_PENDING)->exists()) {
+                HookManager::call('order.cancel.before', $this->order);
+            }
+
             $cancelledOrder = DB::transaction(function () {
                 $order = $this->lockCurrentOrderWhenStatus(Order::STATUS_PENDING);
                 if (!$order) {
                     return null;
                 }
-
-                HookManager::call('order.cancel.before', $order);
 
                 $order->status = Order::STATUS_CANCELLED;
                 if (!$order->save()) {

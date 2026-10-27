@@ -117,7 +117,9 @@ class StatUserJob implements ShouldQueue
                 'created_at' => time(),
                 'updated_at' => time(),
             ],
-            ['user_id', 'server_rate', 'record_at', 'record_type'],
+            // unique key must match the schema: record_type is NOT part of the
+            // v2_stat_user unique index, so monthly rows would merge into daily
+            ['user_id', 'server_rate', 'record_at'],
             [
                 'u' => DB::raw("u + VALUES(u)"),
                 'd' => DB::raw("d + VALUES(d)"),
