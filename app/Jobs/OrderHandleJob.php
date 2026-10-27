@@ -13,7 +13,6 @@ use Illuminate\Queue\SerializesModels;
 class OrderHandleJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-    protected $order;
     protected $tradeNo;
 
     public $tries = 3;

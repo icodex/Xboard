@@ -10,13 +10,11 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\User;
-use App\Services\CouponService;
 use App\Services\OrderService;
 use App\Services\PaymentService;
 use App\Services\PlanService;
 use App\Services\UserService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
@@ -85,34 +83,6 @@ class OrderController extends Controller
         );
 
         return $this->success($order->trade_no);
-    }
-
-    protected function applyCoupon(Order $order, string $couponCode): void
-    {
-        $couponService = new CouponService($couponCode);
-        if (!$couponService->use($order)) {
-            throw new ApiException(__('Coupon failed'));
-        }
-        $order->coupon_id = $couponService->getId();
-    }
-
-    protected function handleUserBalance(Order $order, User $user, UserService $userService): void
-    {
-        $remainingBalance = $user->balance - $order->total_amount;
-
-        if ($remainingBalance > 0) {
-            if (!$userService->addBalance($order->user_id, -$order->total_amount)) {
-                throw new ApiException(__('Insufficient balance'));
-            }
-            $order->balance_amount = $order->total_amount;
-            $order->total_amount = 0;
-        } else {
-            if (!$userService->addBalance($order->user_id, -$user->balance)) {
-                throw new ApiException(__('Insufficient balance'));
-            }
-            $order->balance_amount = $user->balance;
-            $order->total_amount = $order->total_amount - $user->balance;
-        }
     }
 
     public function checkout(Request $request)
