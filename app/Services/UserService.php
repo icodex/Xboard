@@ -47,7 +47,7 @@ class UserService
 
     public function isAvailable(User $user)
     {
-        if (!$user->banned && $user->transfer_enable && ($user->expired_at > time() || $user->expired_at === NULL)) {
+        if (!$user->banned && $user->transfer_enable && ($user->expired_at > time() || $user->expired_at === NULL || $user->expired_at === 0)) {
             return true;
         }
         return false;
@@ -58,7 +58,9 @@ class UserService
         return User::whereRaw('u + d < transfer_enable')
             ->where(function ($query) {
                 $query->where('expired_at', '>=', time())
-                    ->orWhere('expired_at', NULL);
+                    ->orWhere('expired_at', NULL)
+                    // v2board legacy: 0 means never expires
+                    ->orWhere('expired_at', 0);
             })
             ->where('banned', 0)
             ->get();

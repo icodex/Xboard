@@ -98,7 +98,9 @@ class ServerService
             ->whereRaw('u + d < transfer_enable')
             ->where(function ($query) {
                 $query->where('expired_at', '>=', time())
-                    ->orWhere('expired_at', NULL);
+                    ->orWhere('expired_at', NULL)
+                    // v2board legacy: 0 means never expires
+                    ->orWhere('expired_at', 0);
             })
             ->where('banned', 0)
             ->select([
