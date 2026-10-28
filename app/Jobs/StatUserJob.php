@@ -19,7 +19,6 @@ class StatUserJob implements ShouldQueue
     protected array $data;
     protected array $server;
     protected string $protocol;
-    protected string $recordType;
 
     public $tries = 3;
     public $timeout = 60;
@@ -36,20 +35,17 @@ class StatUserJob implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(array $server, array $data, string $protocol, string $recordType = 'd')
+    public function __construct(array $server, array $data, string $protocol)
     {
         $this->onQueue('stat');
         $this->data = $data;
         $this->server = $server;
         $this->protocol = $protocol;
-        $this->recordType = $recordType;
     }
 
     public function handle(): void
     {
-        $recordAt = $this->recordType === 'm'
-            ? strtotime(date('Y-m-01'))
-            : strtotime(date('Y-m-d'));
+        $recordAt = strtotime(date('Y-m-d'));
 
         if (config('database.default') === 'sqlite') {
             foreach ($this->data as $uid => $v) {
@@ -89,7 +85,7 @@ class StatUserJob implements ShouldQueue
                 $uid,
                 $this->server['rate'],
                 $recordAt,
-                $this->recordType,
+                'd',
                 intval($v[0] * $this->server['rate']),
                 intval($v[1] * $this->server['rate']),
                 $now,
@@ -124,7 +120,7 @@ class StatUserJob implements ShouldQueue
                 $uid,
                 $this->server['rate'],
                 $recordAt,
-                $this->recordType,
+                'd',
                 intval($v[0] * $this->server['rate']),
                 intval($v[1] * $this->server['rate']),
                 $now,
@@ -149,7 +145,7 @@ class StatUserJob implements ShouldQueue
                 'user_id' => $uid,
                 'server_rate' => $this->server['rate'],
                 'record_at' => $recordAt,
-                'record_type' => $this->recordType,
+                'record_type' => 'd',
             ])->first();
 
             if ($existingRecord) {
@@ -163,7 +159,7 @@ class StatUserJob implements ShouldQueue
                     'user_id' => $uid,
                     'server_rate' => $this->server['rate'],
                     'record_at' => $recordAt,
-                    'record_type' => $this->recordType,
+                    'record_type' => 'd',
                     'u' => intval($v[0] * $this->server['rate']),
                     'd' => intval($v[1] * $this->server['rate']),
                     'created_at' => time(),

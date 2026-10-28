@@ -27,6 +27,16 @@ class ThemeService
      */
     private function registerThemeViewPaths(): void
     {
+        // View finder is a singleton that survives across requests under Octane;
+        // re-registering here would grow the hints array on every instantiation.
+        $finder = View::getFinder();
+        $hints = $finder instanceof \Illuminate\View\FileViewFinder
+            ? ($finder->getHints()['theme'] ?? [])
+            : [];
+        if ($hints !== []) {
+            return;
+        }
+
         $systemPath = base_path(self::SYSTEM_THEME_DIR);
         if (File::exists($systemPath)) {
             View::addNamespace('theme', $systemPath);

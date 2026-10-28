@@ -21,7 +21,6 @@ class StatServerJob implements ShouldQueue
     protected array $data;
     protected array $server;
     protected string $protocol;
-    protected string $recordType;
 
     public $tries = 3;
     public $timeout = 60;
@@ -38,20 +37,17 @@ class StatServerJob implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(array $server, array $data, $protocol, string $recordType = 'd')
+    public function __construct(array $server, array $data, $protocol)
     {
         $this->onQueue('stat');
         $this->data = $data;
         $this->server = $server;
         $this->protocol = $protocol;
-        $this->recordType = $recordType;
     }
 
     public function handle(): void
     {
-        $recordAt = $this->recordType === 'm'
-            ? strtotime(date('Y-m-01'))
-            : strtotime(date('Y-m-d'));
+        $recordAt = strtotime(date('Y-m-d'));
 
         $u = $d = 0;
         foreach ($this->data as $traffic) {
@@ -97,7 +93,7 @@ class StatServerJob implements ShouldQueue
                 'record_at' => $recordAt,
                 'server_id' => $this->server['id'],
                 'server_type' => $this->protocol,
-                'record_type' => $this->recordType,
+                'record_type' => 'd',
             ])->first();
 
             if ($existingRecord) {
@@ -111,7 +107,7 @@ class StatServerJob implements ShouldQueue
                     'record_at' => $recordAt,
                     'server_id' => $this->server['id'],
                     'server_type' => $this->protocol,
-                    'record_type' => $this->recordType,
+                    'record_type' => 'd',
                     'u' => $u,
                     'd' => $d,
                     'created_at' => time(),
@@ -128,7 +124,7 @@ class StatServerJob implements ShouldQueue
                 'record_at' => $recordAt,
                 'server_id' => $this->server['id'],
                 'server_type' => $this->protocol,
-                'record_type' => $this->recordType,
+                'record_type' => 'd',
                 'u' => $u,
                 'd' => $d,
                 'created_at' => time(),
@@ -166,7 +162,7 @@ class StatServerJob implements ShouldQueue
             $recordAt,
             $this->server['id'],
             $this->protocol,
-            $this->recordType,
+            'd',
             $u,
             $d,
             $now,

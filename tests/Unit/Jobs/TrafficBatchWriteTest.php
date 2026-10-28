@@ -58,7 +58,7 @@ class TrafficBatchWriteTest extends TestCase
         $data = $this->makeData([[100, 200], [300, 400], [10, 20]]);
         $recordAt = strtotime(date('Y-m-d'));
 
-        (new StatUserJob($this->serverArr(), $data, 'vmess', 'd'))->handle();
+        (new StatUserJob($this->serverArr(), $data, 'vmess'))->handle();
 
         $this->assertSame(3, StatUser::whereIn('user_id', $this->userIds)->where('record_at', $recordAt)->count());
         $stat = StatUser::where('user_id', $this->userIds[0])->where('record_at', $recordAt)->firstOrFail();

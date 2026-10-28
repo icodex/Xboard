@@ -55,11 +55,16 @@ class AuthService
     public static function findUserByBearerToken(string $bearerToken): ?User
     {
         $token = str_replace('Bearer ', '', $bearerToken);
-        
+
         $accessToken = PersonalAccessToken::findToken($token);
-        
+
+        // match Sanctum guard behavior: expired tokens must not authenticate
+        if ($accessToken?->expires_at?->isPast()) {
+            return null;
+        }
+
         $tokenable = $accessToken?->tokenable;
-        
+
         return $tokenable instanceof User ? $tokenable : null;
     }
 

@@ -3,13 +3,16 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Utils\CacheKey;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
 
 class DeviceStateService
 {
     private const PREFIX = 'user_devices:';
     private const TTL = 300;                     // device state ttl
+    private const DB_THROTTLE = 60;              // min seconds between DB refreshes per user
 
     /**
      * 移除 Redis key 的前缀
@@ -52,20 +55,29 @@ class DeviceStateService
      */
     public function getNodeDevices(int $nodeId): array
     {
-        $keys = Redis::keys(self::PREFIX . '*');
         $prefix = "{$nodeId}:";
         $result = [];
-        foreach ($keys as $key) {
-            $actualKey = $this->removeRedisPrefix($key);
-            $uid = (int) substr($actualKey, strlen(self::PREFIX));
-            $data = Redis::hgetall($actualKey);
-            foreach ($data as $field => $timestamp) {
-                if (str_starts_with($field, $prefix)) {
-                    $ip = substr($field, strlen($prefix));
-                    $result[$uid][] = $ip;
+        $cursor = 0;
+
+        // SCAN instead of KEYS: KEYS blocks the whole Redis instance on large keyspaces
+        do {
+            $batch = Redis::scan($cursor, ['match' => self::PREFIX . '*', 'count' => 500]);
+            if ($batch === false) {
+                break;
+            }
+            [$cursor, $keys] = $batch;
+            foreach ($keys as $key) {
+                $actualKey = $this->removeRedisPrefix($key);
+                $uid = (int) substr($actualKey, strlen(self::PREFIX));
+                $data = Redis::hgetall($actualKey);
+                foreach ($data as $field => $timestamp) {
+                    if (str_starts_with($field, $prefix)) {
+                        $ip = substr($field, strlen($prefix));
+                        $result[$uid][] = $ip;
+                    }
                 }
             }
-        }
+        } while ($cursor > 0);
 
         return $result;
     }
@@ -111,17 +123,7 @@ class DeviceStateService
      */
     public function getDeviceCount(int $userId): int
     {
-        $data = Redis::hgetall(self::PREFIX . $userId);
-        $now = time();
-        $ips = [];
-
-        foreach ($data as $field => $timestamp) {
-            if ($now - (int) $timestamp <= self::TTL) {
-                $ips[] = substr($field, strpos($field, ':') + 1);
-            }
-        }
-
-        return count(array_unique($ips));
+        return count($this->activeIps(Redis::hgetall(self::PREFIX . $userId)));
     }
 
     /**
@@ -133,9 +135,17 @@ class DeviceStateService
             return [];
         }
 
+        // one pipeline round trip for all users instead of one hgetall each
+        $users = $users->values();
+        $responses = Redis::pipeline(function ($pipe) use ($users) {
+            foreach ($users as $user) {
+                $pipe->hgetall(self::PREFIX . $user->id);
+            }
+        });
+
         $result = [];
-        foreach ($users as $user) {
-            $count = $this->getDeviceCount($user->id);
+        foreach ($users as $index => $user) {
+            $count = count($this->activeIps($responses[$index] ?? []));
             if ($count > 0) {
                 $result[$user->id] = $count;
             }
@@ -149,24 +159,42 @@ class DeviceStateService
      */
     public function getUsersDevices(array $userIds): array
     {
+        if (empty($userIds)) {
+            return [];
+        }
+
+        $responses = Redis::pipeline(function ($pipe) use ($userIds) {
+            foreach ($userIds as $userId) {
+                $pipe->hgetall(self::PREFIX . $userId);
+            }
+        });
+
         $result = [];
-        $now = time();
-        foreach ($userIds as $userId) {
-            $data = Redis::hgetall(self::PREFIX . $userId);
-            if (!empty($data)) {
-                $ips = [];
-                foreach ($data as $field => $timestamp) {
-                    if ($now - (int) $timestamp <= self::TTL) {
-                        $ips[] = substr($field, strpos($field, ':') + 1);
-                    }
-                }
-                if (!empty($ips)) {
-                    $result[$userId] = array_values(array_unique($ips));
-                }
+        foreach ($userIds as $index => $userId) {
+            $ips = $this->activeIps($responses[$index] ?? []);
+            if (!empty($ips)) {
+                $result[$userId] = $ips;
             }
         }
 
         return $result;
+    }
+
+    /**
+     * extract the still-valid, deduplicated IPs from a user_devices hash
+     */
+    private function activeIps(array $data): array
+    {
+        $now = time();
+        $ips = [];
+
+        foreach ($data as $field => $timestamp) {
+            if ($now - (int) $timestamp <= self::TTL) {
+                $ips[] = substr($field, strpos($field, ':') + 1);
+            }
+        }
+
+        return array_values(array_unique($ips));
     }
 
     /**
@@ -190,17 +218,14 @@ class DeviceStateService
      */
     public function notifyUpdate(int $userId): void
     {
-        $dbThrottleKey = "device:db_throttle:{$userId}";
-
-        // if (Redis::setnx($dbThrottleKey, 1)) {
-        //     Redis::expire($dbThrottleKey, self::DB_THROTTLE);
-
+        // one DB refresh per user per TTL window; the Redis hash stays the live source
+        if (Cache::add(CacheKey::get('DEVICE_DB_THROTTLE', $userId), 1, self::DB_THROTTLE)) {
             User::query()
                 ->whereKey($userId)
                 ->update([
                     'online_count' => $this->getDeviceCount($userId),
                     'last_online_at' => now(),
                 ]);
-        // }
+        }
     }
 }

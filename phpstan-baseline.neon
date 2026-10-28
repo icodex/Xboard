@@ -96,6 +96,27 @@ parameters:
 			count: 2
 			path: app/Utils/Helper.php
 
+		# Redis facade scan()/pipeline() resolve to the raw phpredis extension stubs,
+		# but at runtime they go through PhpRedisConnection's wrappers which accept
+		# ($cursor, [options]) and a callable respectively — signatures are correct.
+		-
+			message: '#^Parameter \#2 \$pattern of static method Redis\:\:scan\(\) expects string\|null, array\<string, int\|string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Services/DeviceStateService.php
+
+		-
+			message: '#^Argument of an invalid type string supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: app/Services/DeviceStateService.php
+
+		-
+			message: '#^Static method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
+			identifier: arguments.count
+			count: 2
+			path: app/Services/DeviceStateService.php
+
 		-
 			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$authTimer\.$#'
 			identifier: property.notFound

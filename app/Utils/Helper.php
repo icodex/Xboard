@@ -34,14 +34,7 @@ class Helper
     public static function generateOrderNo(): string
     {
         $randomChar = mt_rand(10000, 99999);
-        return date('YmdHms') . substr(microtime(), 2, 6) . $randomChar;
-    }
-
-    public static function exchange($from, $to)
-    {
-        $result = file_get_contents('https://api.exchangerate.host/latest?symbols=' . $to . '&base=' . $from);
-        $result = json_decode($result, true);
-        return $result['rates'][$to];
+        return date('YmdHis') . substr(microtime(), 2, 6) . $randomChar;
     }
 
     public static function randomChar($len, $special = false)
