@@ -7,6 +7,7 @@ use App\Models\ServerMachine;
 use App\Services\DeviceStateService;
 use App\Services\NodeRegistry;
 use App\Services\ServerService;
+use App\Utils\CacheKey;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -106,7 +107,7 @@ class NodeWorker
         });
 
         Timer::add(10, function () {
-            $pendingNodeIds = Redis::spop('device:push_pending_nodes', 100);
+            $pendingNodeIds = Redis::spop(CacheKey::get('DEVICE_PUSH_PENDING_NODES'), 100);
             if (empty($pendingNodeIds)) {
                 return;
             }
@@ -184,7 +185,7 @@ class NodeWorker
 
         $conn->nodeId = $nodeId;
         NodeRegistry::add($nodeId, $conn);
-        Cache::put("node_ws_alive:{$nodeId}", true, 86400);
+        Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"), true, 86400);
 
         app(DeviceStateService::class)->clearAllNodeDevices($nodeId);
 
@@ -231,7 +232,7 @@ class NodeWorker
         $deviceService = app(DeviceStateService::class);
         foreach ($nodes as $node) {
             NodeRegistry::add($node->id, $conn);
-            Cache::put("node_ws_alive:{$node->id}", true, 86400);
+            Cache::put(CacheKey::get("NODE_WS_ALIVE_{$node->id}"), true, 86400);
             $deviceService->clearAllNodeDevices($node->id);
             $nodeIds[] = $node->id;
         }
@@ -273,7 +274,7 @@ class NodeWorker
         if (!empty($conn->machineNodeIds)) {
             if ($event === 'pong') {
                 foreach ($conn->machineNodeIds as $nid) {
-                    Cache::put("node_ws_alive:{$nid}", true, 86400);
+                    Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nid}"), true, 86400);
                 }
                 return;
             }
@@ -306,7 +307,7 @@ class NodeWorker
             $machineId = $conn->machineId ?? 'unknown';
             foreach ($conn->machineNodeIds as $nodeId) {
                 NodeRegistry::remove($nodeId, $conn);
-                Cache::forget("node_ws_alive:{$nodeId}");
+                Cache::forget(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"));
 
                 $affectedUserIds = $service->clearAllNodeDevices($nodeId);
                 foreach ($affectedUserIds as $userId) {
@@ -330,7 +331,7 @@ class NodeWorker
         if (!empty($conn->nodeId)) {
             $nodeId = $conn->nodeId;
             NodeRegistry::remove($nodeId, $conn);
-            Cache::forget("node_ws_alive:{$nodeId}");
+            Cache::forget(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"));
 
             $affectedUserIds = $service->clearAllNodeDevices($nodeId);
             foreach ($affectedUserIds as $userId) {

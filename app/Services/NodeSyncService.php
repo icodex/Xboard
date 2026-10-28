@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Server;
 use App\Models\ServerMachine;
 use App\Models\User;
+use App\Utils\CacheKey;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -16,7 +17,7 @@ class NodeSyncService
      */
     public static function isNodeOnline(int $nodeId): bool
     {
-        return (bool) Cache::get("node_ws_alive:{$nodeId}");
+        return (bool) Cache::get(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"));
     }
 
     /**

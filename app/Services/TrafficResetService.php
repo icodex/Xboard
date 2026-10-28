@@ -8,7 +8,6 @@ use App\Models\TrafficResetLog;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 use App\Services\Plugin\HookManager;
 
 /**
@@ -60,7 +59,6 @@ class TrafficResetService
           'new_total' => 0,
         ]);
 
-        $this->clearUserCache($user);
         HookManager::call('traffic.reset.after', $user);
         return true;
       });
@@ -234,152 +232,6 @@ class TrafficResetService
       Plan::RESET_TRAFFIC_NEVER => TrafficResetLog::TYPE_MANUAL,
       default => TrafficResetLog::TYPE_MANUAL,
     };
-  }
-
-  /**
-   * Clear user-related cache.
-   */
-  private function clearUserCache(User $user): void
-  {
-    $cacheKeys = [
-      "user_traffic_{$user->id}",
-      "user_reset_status_{$user->id}",
-      "user_subscription_{$user->token}",
-    ];
-
-    foreach ($cacheKeys as $key) {
-      Cache::forget($key);
-    }
-  }
-
-  /**
-   * Batch check and reset users. Processes all eligible users in batches.
-   */
-  public function batchCheckReset(int $batchSize = 100, ?callable $progressCallback = null): array
-  {
-    $startTime = microtime(true);
-    $totalResetCount = 0;
-    $totalProcessedCount = 0;
-    $batchNumber = 1;
-    $errors = [];
-    $lastProcessedId = 0;
-
-    try {
-      do {
-        $users = User::where('next_reset_at', '<=', time())
-          ->whereNotNull('next_reset_at')
-          ->where('id', '>', $lastProcessedId)
-          ->where(function ($query) {
-            $query->where('expired_at', '>', time())
-              ->orWhereNull('expired_at');
-          })
-          ->where('banned', 0)
-          ->whereNotNull('plan_id')
-          ->orderBy('id')
-          ->limit($batchSize)
-          ->get();
-
-        if ($users->isEmpty()) {
-          break;
-        }
-
-        $batchResetCount = 0;
-
-        if ($progressCallback) {
-          $progressCallback([
-            'batch_number' => $batchNumber,
-            'batch_size' => $users->count(),
-            'total_processed' => $totalProcessedCount,
-          ]);
-        }
-
-        foreach ($users as $user) {
-          try {
-            if ($this->checkAndReset($user, TrafficResetLog::SOURCE_CRON)) {
-              $batchResetCount++;
-              $totalResetCount++;
-            }
-            $totalProcessedCount++;
-            $lastProcessedId = $user->id;
-          } catch (\Exception $e) {
-            $error = [
-              'user_id' => $user->id,
-              'email' => $user->email,
-              'error' => $e->getMessage(),
-              'batch' => $batchNumber,
-              'timestamp' => now()->toDateTimeString(),
-            ];
-            $batchErrors[] = $error;
-            $errors[] = $error;
-
-            Log::error('User traffic reset failed', $error);
-
-            $totalProcessedCount++;
-            $lastProcessedId = $user->id;
-          }
-        }
-
-        $batchNumber++;
-
-        if ($batchNumber % 10 === 0) {
-          gc_collect_cycles();
-        }
-
-        if ($batchNumber % 5 === 0) {
-          usleep(100000);
-        }
-
-      } while (true);
-
-    } catch (\Exception $e) {
-      Log::error('Batch traffic reset task failed with an exception', [
-        'error' => $e->getMessage(),
-        'trace' => $e->getTraceAsString(),
-        'total_processed' => $totalProcessedCount,
-        'total_reset' => $totalResetCount,
-        'last_processed_id' => $lastProcessedId,
-      ]);
-
-      $errors[] = [
-        'type' => 'system_error',
-        'error' => $e->getMessage(),
-        'batch' => $batchNumber,
-        'last_processed_id' => $lastProcessedId,
-        'timestamp' => now()->toDateTimeString(),
-      ];
-    }
-
-    $totalDuration = round(microtime(true) - $startTime, 2);
-
-    $result = [
-      'total_processed' => $totalProcessedCount,
-      'total_reset' => $totalResetCount,
-      'total_batches' => $batchNumber - 1,
-      'error_count' => count($errors),
-      'errors' => $errors,
-      'duration' => $totalDuration,
-      'batch_size' => $batchSize,
-      'last_processed_id' => $lastProcessedId,
-      'completed_at' => now()->toDateTimeString(),
-    ];
-
-    return $result;
-  }
-
-  /**
-   * Set the initial reset time for a new user.
-   */
-  public function setInitialResetTime(User $user): void
-  {
-    if ($user->next_reset_at !== null) {
-      return;
-    }
-
-    $nextResetTime = $this->calculateNextResetTime($user);
-
-    if ($nextResetTime) {
-      $user->update(['next_reset_at' => $nextResetTime->timestamp]);
-    }
   }
 
   /**

@@ -101,7 +101,7 @@ class CheckCommission extends Command
             $inviter = User::find($inviteUserId);
             if (!$inviter) continue;
             if (!isset($commissionShareLevels[$l])) continue;
-            $commissionBalance = $order->commission_balance * ($commissionShareLevels[$l] / 100);
+            $commissionBalance = (int) round($order->commission_balance * ($commissionShareLevels[$l] / 100));
             if (!$commissionBalance) continue;
             if ((int)admin_setting('withdraw_close_enable', 0)) {
                 $inviter->increment('balance', $commissionBalance);
@@ -109,7 +109,6 @@ class CheckCommission extends Command
                 $inviter->increment('commission_balance', $commissionBalance);
             }
             if (!$inviter->save()) {
-                DB::rollBack();
                 return false;
             }
             CommissionLog::create([

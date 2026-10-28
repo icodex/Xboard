@@ -73,7 +73,6 @@ class Plugin extends AbstractPlugin implements PaymentInterface
 
         $curl = new Curl();
         $curl->setUserAgent('MGate');
-        $curl->setOpt(CURLOPT_SSL_VERIFYPEER, 0);
         $curl->post($this->getConfig('mgate_url') . '/v1/gateway/fetch', http_build_query($params));
         $result = $curl->response;
 

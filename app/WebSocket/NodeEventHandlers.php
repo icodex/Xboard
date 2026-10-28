@@ -18,7 +18,7 @@ class NodeEventHandlers
      */
     public static function handlePong(TcpConnection $conn, int $nodeId, array $data = []): void
     {
-        Cache::put("node_ws_alive:{$nodeId}", true, 86400);
+        Cache::put(\App\Utils\CacheKey::get("NODE_WS_ALIVE_{$nodeId}"), true, 86400);
     }
 
     /**
@@ -74,7 +74,7 @@ class NodeEventHandlers
         }
 
         // Mark for push
-        Redis::sadd('device:push_pending_nodes', $nodeId);
+        Redis::sadd(\App\Utils\CacheKey::get('DEVICE_PUSH_PENDING_NODES'), $nodeId);
 
         Log::debug("[WS] Node#{$nodeId} synced " . count($newDevices) . " users, removed " . count($removedUsers));
     }

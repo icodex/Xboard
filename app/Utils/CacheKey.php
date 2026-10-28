@@ -16,7 +16,8 @@ class CacheKey
         'PASSWORD_ERROR_LIMIT' => '密码错误次数限制',
         'USER_SESSIONS' => '用户session',
         'FORGET_REQUEST_LIMIT' => '找回密码次数限制',
-        'DEVICE_DB_THROTTLE' => '设备状态DB刷新节流'
+        'DEVICE_DB_THROTTLE' => '设备状态DB刷新节流',
+        'DEVICE_PUSH_PENDING_NODES' => '待推送设备状态的节点'
     ];
 
     // 允许的缓存键模式（支持通配符）
@@ -29,6 +30,7 @@ class CacheKey
         'SERVER_*_LAST_LOAD_AT',       // 节点最后负载提交时间
         'SERVER_*_METRICS',            // 节点指标数据
         'USER_ONLINE_CONN_*_*',        // 用户在线连接数 (特定节点类型_ID)
+        'NODE_WS_ALIVE_*',             // 节点 WS 在线标记
     ];
 
     /**
