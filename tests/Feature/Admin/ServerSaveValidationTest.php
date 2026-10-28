@@ -84,13 +84,31 @@ class ServerSaveValidationTest extends TestCase
         $errors = $this->validate(['cipher' => 'aes-128-cfb'], 'shadowsocks')->errors();
         $this->assertTrue($errors->has('protocol_settings.cipher'));
 
+        // 2022-blake3-chacha20-poly1305 removed: no multi-user (iPSK) implementation
+        // on either kernel, node refuses to start with it.
+        $errors = $this->validate(['cipher' => '2022-blake3-chacha20-poly1305'], 'shadowsocks')->errors();
+        $this->assertTrue($errors->has('protocol_settings.cipher'));
+
         foreach ([
             'aes-128-gcm', 'aes-192-gcm', 'aes-256-gcm',
             'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305',
-            '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305',
+            '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm',
         ] as $cipher) {
             $this->assertFalse($this->validate(['cipher' => $cipher], 'shadowsocks')->fails(), "cipher={$cipher} should pass");
         }
+    }
+
+    public function test_socks_rejects_tls(): void
+    {
+        // Kernel socks inbound has no TLS option: tls=1 saves fine but serves
+        // plaintext while the panel shows "encrypted" - must be rejected.
+        foreach ([1, 2] as $tls) {
+            $errors = $this->validate(['tls' => $tls], 'socks')->errors();
+            $this->assertTrue($errors->has('protocol_settings.tls'), "socks tls={$tls} should fail");
+        }
+
+        $this->assertFalse($this->validate(['tls' => 0], 'socks')->fails());
+        $this->assertFalse($this->validate([], 'socks')->fails());
     }
 
     public function test_vmess_accepts_reality_settings(): void

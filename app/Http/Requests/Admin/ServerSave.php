@@ -8,6 +8,9 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class ServerSave extends FormRequest
 {
+    // utls 与 hop_interval 仅客户端订阅消费（app/Protocols/* 的 uTLS 指纹与端口跳跃），
+    // buildNodeConfig 从不下发、节点契约（xboard-node internal/panel/types.go）无此字段。
+    // 不是死字段，勿删；想下发节点需节点侧先加字段。
     private const UTLS_RULES = [
         'utls.enabled' => 'nullable|boolean',
         'utls.fingerprint' => 'nullable|string',
@@ -26,7 +29,9 @@ class ServerSave extends FormRequest
 
     private const TLS_LEVEL_RULE = 'integer|in:0,1,2';
 
-    private const SHADOWSOCKS_CIPHERS = 'in:aes-128-gcm,aes-192-gcm,aes-256-gcm,chacha20-ietf-poly1305,xchacha20-ietf-poly1305,2022-blake3-aes-128-gcm,2022-blake3-aes-256-gcm,2022-blake3-chacha20-poly1305';
+    // 2022-blake3-chacha20-poly1305 已移除：sing-box 服务端 iPSK 仅实现 blake3-aes，
+    // xray 同样无 multi-user 形态，双内核配了都拒启（xboard-node docs-protocol-support）
+    private const SHADOWSOCKS_CIPHERS = 'in:aes-128-gcm,aes-192-gcm,aes-256-gcm,chacha20-ietf-poly1305,xchacha20-ietf-poly1305,2022-blake3-aes-128-gcm,2022-blake3-aes-256-gcm';
 
     private const ECH_RULES = [
         'enabled' => 'nullable|boolean',
@@ -75,7 +80,7 @@ class ServerSave extends FormRequest
             'obfs.password' => 'string|nullable',
             'bandwidth.up' => 'nullable|integer',
             'bandwidth.down' => 'nullable|integer',
-            'hop_interval' => 'integer|nullable',
+            'hop_interval' => 'integer|nullable', // 仅客户端订阅消费（SingBox/ClashMeta 端口跳跃），不下发节点
         ],
         'vless' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
@@ -87,8 +92,11 @@ class ServerSave extends FormRequest
             'encryption.encryption' => 'nullable|string',
             'encryption.decryption' => 'nullable|string',
         ],
+        // socks 内核入站无 TLS 选项（sing-box/xray 均不支持），tls=1 保存后实际明文服务，
+        // 面板却显示"已加密"——只允许关闭。不用 in:0：其消息 key 会被
+        // protocol_settings.*.in 通配盖掉，not_in 无此冲突且 null/缺省可过。
         'socks' => [
-            'tls' => 'nullable|' . self::TLS_LEVEL_RULE,
+            'tls' => 'nullable|integer|not_in:1,2',
         ],
         'naive' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
@@ -282,7 +290,7 @@ class ServerSave extends FormRequest
 
     public function messages()
     {
-        return [
+        $messages = [
             'name.required' => '节点名称不能为空',
             'group_ids.required' => '权限组不能为空',
             'group_ids.array' => '权限组格式不正确',
@@ -309,5 +317,11 @@ class ServerSave extends FormRequest
             'transfer_enable.integer' => '流量上限必须是整数',
             'transfer_enable.min' => '流量上限不能小于0',
         ];
+
+        if ($this->input('type') === 'socks') {
+            $messages['protocol_settings.tls.not_in'] = 'socks 节点不支持 TLS（内核无 TLS 入站，开启后实际明文），请保持关闭';
+        }
+
+        return $messages;
     }
 }

@@ -349,8 +349,10 @@ class ServerService
             'socks' => [
                 ...$baseConfig,
                 'server_port' => (int) $serverPort,
-                'tls' => (int) data_get($protocolSettings, 'tls', 0),
-                'tls_settings' => data_get($protocolSettings, 'tls_settings'),
+                // socks 内核入站无 TLS；历史行可能存了 tls=1（校验收紧前保存的），
+                // 一律按明文下发，避免节点侧拿到永不生效的 TLS 材料产生误导
+                'tls' => 0,
+                'tls_settings' => null,
             ],
             'naive' => [
                 ...$baseConfig,
