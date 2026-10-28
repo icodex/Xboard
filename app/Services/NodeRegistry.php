@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use Workerman\Connection\TcpConnection;
 
 /**
@@ -19,7 +20,16 @@ class NodeRegistry
     public static function add(int $nodeId, TcpConnection $conn): void
     {
         if (isset(self::$connections[$nodeId]) && self::$connections[$nodeId] !== $conn) {
-            self::$connections[$nodeId]->close();
+            // 同一 node_id 的新连接会顶掉旧连接（防僵尸连接）。旧连接侧表现为
+            // 被动 EOF，没有这行日志时排查全靠猜（hysteria 联调问题 3 的真凶）。
+            Log::warning("[WS] Node#{$nodeId} duplicate auth, closing previous connection", [
+                'old_remote' => self::$connections[$nodeId]->getRemoteIp(),
+                'new_remote' => $conn->getRemoteIp(),
+            ]);
+            self::$connections[$nodeId]->close(json_encode([
+                'event' => 'error',
+                'data' => ['message' => 'duplicate node auth, this connection was replaced'],
+            ]));
         }
         self::$connections[$nodeId] = $conn;
     }
@@ -27,7 +37,14 @@ class NodeRegistry
     public static function addMachine(int $machineId, TcpConnection $conn): void
     {
         if (isset(self::$machineConnections[$machineId]) && self::$machineConnections[$machineId] !== $conn) {
-            self::$machineConnections[$machineId]->close();
+            Log::warning("[WS] Machine#{$machineId} duplicate auth, closing previous connection", [
+                'old_remote' => self::$machineConnections[$machineId]->getRemoteIp(),
+                'new_remote' => $conn->getRemoteIp(),
+            ]);
+            self::$machineConnections[$machineId]->close(json_encode([
+                'event' => 'error',
+                'data' => ['message' => 'duplicate machine auth, this connection was replaced'],
+            ]));
         }
         self::$machineConnections[$machineId] = $conn;
     }

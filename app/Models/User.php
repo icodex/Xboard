@@ -155,12 +155,16 @@ class User extends Authenticatable
 
     /**
      * 检查用户是否处于活跃状态
+     *
+     * 口径必须与 ServerService::getAvailableUsers()（节点全量下发）一致：
+     * 无 plan、expired_at=0（v2board 遗留，永不过期）都算可用。
+     * 否则节点同步互相打架：全量把用户下发给节点，admin 一改字段，
+     * 增量 delta 却按 remove 推送把人踢下线，下次全量又加回来。
      */
     public function isActive(): bool
     {
-        return !$this->banned && 
-               ($this->expired_at === null || $this->expired_at > time()) &&
-               $this->plan_id !== null;
+        return !$this->banned &&
+               ($this->expired_at === null || $this->expired_at > time() || $this->expired_at == 0);
     }
 
     /** 

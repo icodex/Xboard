@@ -97,7 +97,7 @@ class NodeEventHandlers
             'users' => $devices,
         ]);
 
-        Log::debug("[WS] Node#{$nodeId} requested devices, sent " . count($devices) . " users");
+        Log::info("[WS] Node#{$nodeId} requested devices, sent " . count($devices) . " users");
     }
 
     /**

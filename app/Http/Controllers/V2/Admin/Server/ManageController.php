@@ -77,6 +77,14 @@ class ManageController extends Controller
 
     public function update(Request $request)
     {
+        // update() 只做局部字段切换；白名单之外的键若静默剥离，调用方会拿到假成功
+        // （如 server_port 改了但库里没动、节点收不到变更），必须显式拒绝并指路 save()
+        $allowed = ['id', 'show', 'machine_id', 'enabled'];
+        $unknown = array_diff(array_keys($request->all()), $allowed);
+        if ($unknown) {
+            return $this->fail([400, '不支持的字段: ' . implode(',', $unknown) . '，请改用 server/manage/save']);
+        }
+
         $params = $request->validate([
             'id' => 'required|integer',
             'show' => 'nullable|integer',
@@ -221,6 +229,13 @@ class ManageController extends Controller
      */
     public function batchUpdate(Request $request)
     {
+        // 与 update() 同理：白名单外的键直接拒绝，避免静默忽略造成假成功
+        $allowed = ['ids', 'show', 'enabled', 'machine_id'];
+        $unknown = array_diff(array_keys($request->all()), $allowed);
+        if ($unknown) {
+            return $this->fail([400, '不支持的字段: ' . implode(',', $unknown) . '，请改用 server/manage/save']);
+        }
+
         $params = $request->validate([
             'ids' => 'required|array',
             'ids.*' => 'integer',

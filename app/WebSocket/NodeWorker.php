@@ -9,6 +9,7 @@ use App\Services\NodeRegistry;
 use App\Services\ServerService;
 use App\Utils\CacheKey;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Workerman\Connection\TcpConnection;
@@ -77,49 +78,84 @@ class NodeWorker
     {
         Cache::put(self::HEARTBEAT_CACHE_KEY, time(), self::HEARTBEAT_TTL);
         Timer::add(self::HEARTBEAT_INTERVAL, function () {
-            Cache::put(self::HEARTBEAT_CACHE_KEY, time(), self::HEARTBEAT_TTL);
+            $this->safeCall('heartbeat', function () {
+                Cache::put(self::HEARTBEAT_CACHE_KEY, time(), self::HEARTBEAT_TTL);
+            });
+        });
+
+        // 常驻进程里的 Laravel DB/Redis 连接死后不会自动重建（mysql/pg 空闲会被
+        // wait_timeout 掐断），定时重连保底；连接健康时该操作是廉价的
+        Timer::add(60, function () {
+            $this->safeCall('db.reconnect', function () {
+                DB::reconnect();
+            });
         });
 
         Timer::add(self::PING_INTERVAL, function () {
-            $seen = [];
+            $this->safeCall('ping', function () {
+                $seen = [];
 
-            foreach (NodeRegistry::getConnectedNodeIds() as $nodeId) {
-                $conn = NodeRegistry::get($nodeId);
-                if ($conn) {
-                    $oid = spl_object_id($conn);
-                    if (!isset($seen[$oid])) {
-                        $seen[$oid] = true;
-                        $conn->send(json_encode(['event' => 'ping']));
+                foreach (NodeRegistry::getConnectedNodeIds() as $nodeId) {
+                    $conn = NodeRegistry::get($nodeId);
+                    if ($conn) {
+                        $oid = spl_object_id($conn);
+                        if (!isset($seen[$oid])) {
+                            $seen[$oid] = true;
+                            $conn->send(json_encode(['event' => 'ping']));
+                        }
                     }
                 }
-            }
 
-            foreach (NodeRegistry::getConnectedMachineIds() as $machineId) {
-                $conn = NodeRegistry::getMachine($machineId);
-                if ($conn) {
-                    $oid = spl_object_id($conn);
-                    if (!isset($seen[$oid])) {
-                        $seen[$oid] = true;
-                        $conn->send(json_encode(['event' => 'ping']));
+                foreach (NodeRegistry::getConnectedMachineIds() as $machineId) {
+                    $conn = NodeRegistry::getMachine($machineId);
+                    if ($conn) {
+                        $oid = spl_object_id($conn);
+                        if (!isset($seen[$oid])) {
+                            $seen[$oid] = true;
+                            $conn->send(json_encode(['event' => 'ping']));
+                        }
                     }
                 }
-            }
+            });
         });
 
         Timer::add(10, function () {
-            $pendingNodeIds = Redis::spop(CacheKey::get('DEVICE_PUSH_PENDING_NODES'), 100);
-            if (empty($pendingNodeIds)) {
-                return;
-            }
-
-            $service = app(DeviceStateService::class);
-            foreach ($pendingNodeIds as $nodeId) {
-                $nodeId = (int) $nodeId;
-                if (NodeRegistry::get($nodeId) !== null) {
-                    NodeEventHandlers::pushDeviceStateToNode($nodeId, $service);
+            $this->safeCall('device.push', function () {
+                $pendingNodeIds = Redis::spop(CacheKey::get('DEVICE_PUSH_PENDING_NODES'), 100);
+                if (empty($pendingNodeIds)) {
+                    return;
                 }
-            }
+
+                $service = app(DeviceStateService::class);
+                foreach ($pendingNodeIds as $nodeId) {
+                    $nodeId = (int) $nodeId;
+                    if (NodeRegistry::get($nodeId) !== null) {
+                        NodeEventHandlers::pushDeviceStateToNode($nodeId, $service);
+                    }
+                }
+            });
         });
+    }
+
+    /**
+     * 在 Workerman 常驻进程里隔离回调异常：Laravel 的 DB/Redis 连接死后会抛
+     * 未捕获异常，直接把 worker 子进程带崩（历史日志里 exit status 64000 即此），
+     * 所有节点连接同时 EOF。这里捕获、重连、留 error 日志，不让抖动放大。
+     */
+    private function safeCall(string $context, callable $fn): void
+    {
+        try {
+            $fn();
+        } catch (\Throwable $e) {
+            try {
+                DB::reconnect();
+            } catch (\Throwable) {
+                // 重连失败留给下个周期再试
+            }
+            Log::error("[WS] {$context} failed: {$e->getMessage()}", [
+                'exception' => $e,
+            ]);
+        }
     }
 
     public function onConnect(TcpConnection $conn): void
@@ -150,11 +186,13 @@ class NodeWorker
         }
 
         // 判断认证模式
-        if (!empty($params['machine_id'])) {
-            $this->authenticateMachine($conn, $params);
-        } else {
-            $this->authenticateNode($conn, $params);
-        }
+        $this->safeCall('auth', function () use ($conn, $params) {
+            if (!empty($params['machine_id'])) {
+                $this->authenticateMachine($conn, $params);
+            } else {
+                $this->authenticateNode($conn, $params);
+            }
+        });
     }
 
     /**
@@ -167,6 +205,10 @@ class NodeWorker
 
         $serverToken = admin_setting('server_token', '');
         if ($token === '' || $serverToken === '' || !hash_equals($serverToken, $token)) {
+            Log::warning('[WS] Node auth failed: invalid token', [
+                'remote' => $conn->getRemoteIp(),
+                'node_id' => $nodeId,
+            ]);
             $conn->close(json_encode([
                 'event' => 'error',
                 'data' => ['message' => 'invalid token'],
@@ -176,6 +218,10 @@ class NodeWorker
 
         $node = ServerService::getServer($nodeId, null);
         if (!$node) {
+            Log::warning('[WS] Node auth failed: node not found', [
+                'remote' => $conn->getRemoteIp(),
+                'node_id' => $nodeId,
+            ]);
             $conn->close(json_encode([
                 'event' => 'error',
                 'data' => ['message' => 'node not found'],
@@ -189,7 +235,7 @@ class NodeWorker
 
         app(DeviceStateService::class)->clearAllNodeDevices($nodeId);
 
-        Log::debug("[WS] Node#{$nodeId} connected", [
+        Log::info("[WS] Node#{$nodeId} connected", [
             'remote' => $conn->getRemoteIp(),
             'total' => NodeRegistry::count(),
         ]);
@@ -215,6 +261,10 @@ class NodeWorker
             ->first();
 
         if (!$machine || !$machine->is_active) {
+            Log::warning('[WS] Machine auth failed: invalid credentials', [
+                'remote' => $conn->getRemoteIp(),
+                'machine_id' => $machineId,
+            ]);
             $conn->close(json_encode([
                 'event' => 'error',
                 'data' => ['message' => 'invalid machine credentials'],
@@ -241,7 +291,7 @@ class NodeWorker
         $conn->machineId = $machineId;
         $conn->machineNodeIds = $nodeIds;
 
-        Log::debug("[WS] Machine#{$machineId} connected, nodes: " . implode(',', $nodeIds), [
+        Log::info("[WS] Machine#{$machineId} connected, nodes: " . implode(',', $nodeIds), [
             'remote' => $conn->getRemoteIp(),
             'total' => NodeRegistry::count(),
             'machines' => NodeRegistry::machineCount(),
@@ -270,32 +320,34 @@ class NodeWorker
 
         $event = $msg['event'] ?? '';
 
-        // 机器连接：从消息中读取 node_id 来分派到具体节点
-        if (!empty($conn->machineNodeIds)) {
-            if ($event === 'pong') {
-                foreach ($conn->machineNodeIds as $nid) {
-                    Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nid}"), true, 86400);
+        $this->safeCall("message.{$event}", function () use ($conn, $msg, $event) {
+            // 机器连接：从消息中读取 node_id 来分派到具体节点
+            if (!empty($conn->machineNodeIds)) {
+                if ($event === 'pong') {
+                    foreach ($conn->machineNodeIds as $nid) {
+                        Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nid}"), true, 86400);
+                    }
+                    return;
+                }
+
+                $nodeId = (int) ($msg['data']['node_id'] ?? 0);
+                if ($nodeId <= 0 || !in_array($nodeId, $conn->machineNodeIds, true)) {
+                    return;
+                }
+                if (isset($this->handlers[$event])) {
+                    $handler = $this->handlers[$event];
+                    $handler($conn, $nodeId, $msg['data'] ?? []);
                 }
                 return;
             }
 
-            $nodeId = (int) ($msg['data']['node_id'] ?? 0);
-            if ($nodeId <= 0 || !in_array($nodeId, $conn->machineNodeIds, true)) {
-                return;
-            }
-            if (isset($this->handlers[$event])) {
+            // 旧模式：单节点
+            $nodeId = $conn->nodeId ?? null;
+            if (isset($this->handlers[$event]) && $nodeId) {
                 $handler = $this->handlers[$event];
                 $handler($conn, $nodeId, $msg['data'] ?? []);
             }
-            return;
-        }
-
-        // 旧模式：单节点
-        $nodeId = $conn->nodeId ?? null;
-        if (isset($this->handlers[$event]) && $nodeId) {
-            $handler = $this->handlers[$event];
-            $handler($conn, $nodeId, $msg['data'] ?? []);
-        }
+        });
     }
 
     public function onClose(TcpConnection $conn): void
@@ -319,7 +371,7 @@ class NodeWorker
                 NodeRegistry::removeMachine((int) $conn->machineId, $conn);
             }
 
-            Log::debug("[WS] Machine#{$machineId} disconnected", [
+            Log::info("[WS] Machine#{$machineId} disconnected", [
                 'nodes' => $conn->machineNodeIds,
                 'total' => NodeRegistry::count(),
                 'machines' => NodeRegistry::machineCount(),
@@ -338,7 +390,7 @@ class NodeWorker
                 $service->notifyUpdate($userId);
             }
 
-            Log::debug("[WS] Node#{$nodeId} disconnected", [
+            Log::info("[WS] Node#{$nodeId} disconnected", [
                 'total' => NodeRegistry::count(),
                 'affected_users' => count($affectedUserIds),
             ]);
