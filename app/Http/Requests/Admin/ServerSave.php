@@ -138,6 +138,7 @@ class ServerSave extends FormRequest
             'custom_outbounds' => 'nullable|array',
             'custom_routes' => 'nullable|array',
             'cert_config' => 'nullable|array',
+            'kernel_log_level' => 'nullable|string|in:trace,debug,info,warn,warning,error,fatal',
             'rate_time_ranges.*.start' => 'required_with:rate_time_ranges|string|date_format:H:i',
             'rate_time_ranges.*.end' => 'required_with:rate_time_ranges|string|date_format:H:i',
             'rate_time_ranges.*.rate' => 'required_with:rate_time_ranges|numeric|min:0',

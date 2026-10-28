@@ -9,9 +9,9 @@ use Tests\TestCase;
 
 class ServerSaveValidationTest extends TestCase
 {
-    private function validate(array $protocolSettings, string $type): Validator
+    private function validate(array $protocolSettings, string $type, array $extra = []): Validator
     {
-        $request = ServerSave::create('/', 'POST', [
+        $request = ServerSave::create('/', 'POST', array_merge([
             'type' => $type,
             'name' => 'test-node',
             'host' => '127.0.0.1',
@@ -19,9 +19,28 @@ class ServerSaveValidationTest extends TestCase
             'server_port' => 443,
             'rate' => 1,
             'protocol_settings' => $protocolSettings,
-        ]);
+        ], $extra));
 
         return ValidatorFactory::make($request->all(), $request->rules());
+    }
+
+    public function test_kernel_log_level_whitelist(): void
+    {
+        foreach (['trace', 'debug', 'info', 'warn', 'warning', 'error', 'fatal'] as $level) {
+            $this->assertFalse(
+                $this->validate(['tls' => 0, 'network' => 'tcp'], 'vless', ['kernel_log_level' => $level])->fails(),
+                "kernel_log_level={$level} should pass"
+            );
+        }
+
+        // Null and omission are allowed (empty = node derives from its own log.level).
+        $this->assertFalse($this->validate(['tls' => 0, 'network' => 'tcp'], 'vless')->fails());
+        $this->assertFalse($this->validate(['tls' => 0, 'network' => 'tcp'], 'vless', ['kernel_log_level' => null])->fails());
+
+        foreach (['verbose', 'quiet', 'none', 1] as $level) {
+            $errors = $this->validate(['tls' => 0, 'network' => 'tcp'], 'vless', ['kernel_log_level' => $level])->errors();
+            $this->assertTrue($errors->has('kernel_log_level'), "kernel_log_level={$level} should be rejected");
+        }
     }
 
     public function test_network_whitelist_rejects_unsupported_transport(): void

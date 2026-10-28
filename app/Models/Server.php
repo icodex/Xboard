@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
  * @property array|null $rate_time_ranges 倍率时间范围
  * @property int|null $sort 排序
  * @property array|null $protocol_settings 协议设置
+ * @property string|null $kernel_log_level 内核日志等级覆盖（下发 kernel_log_level；空 = 节点侧派生）
  * @property int $created_at
  * @property int $updated_at
  * 

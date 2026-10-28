@@ -397,6 +397,12 @@ class ServerService
             }
         }
 
+        // Kernel log level override: only sent when set (empty = node derives
+        // from its own log.level). Consumed by xboard-node NodeSpec.KernelLogLevel.
+        if (!empty($node['kernel_log_level'])) {
+            $response['kernel_log_level'] = $node['kernel_log_level'];
+        }
+
         return $response;
     }
 
