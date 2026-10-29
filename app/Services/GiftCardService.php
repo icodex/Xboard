@@ -11,7 +11,6 @@ use App\Models\Plan;
 use App\Models\TrafficResetLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class GiftCardService
 {
@@ -333,21 +332,5 @@ class GiftCardService
     public function getTemplate(): GiftCardTemplate
     {
         return $this->template;
-    }
-
-    /**
-     * 记录日志
-     */
-    protected function logUsage(string $action, array $data = []): void
-    {
-        Log::info('礼品卡使用记录', [
-            'action' => $action,
-            'code' => $this->code->code,
-            'template_id' => $this->template->id,
-            'user_id' => $this->user?->id,
-            'data' => $data,
-            'ip' => request()->ip(),
-            'user_agent' => request()->userAgent(),
-        ]);
     }
 }

@@ -122,8 +122,17 @@ class RegisterService
         }
 
         if (!(int) admin_setting('invite_never_expire', 0)) {
-            $inviteCodeModel->status = InviteCode::STATUS_USED;
-            $inviteCodeModel->save();
+            // 原子置为已用：并发注册持同一个一次性码时只有一个能成功，
+            // 读-改-写会把同一码绑给两个新用户（佣金归属错发）
+            $claimed = InviteCode::whereKey($inviteCodeModel->id)
+                ->where('status', InviteCode::STATUS_UNUSED)
+                ->update(['status' => InviteCode::STATUS_USED]);
+            if (!$claimed) {
+                if ((int) admin_setting('invite_force', 0)) {
+                    throw new ApiException(__('Invalid invitation code'));
+                }
+                return null;
+            }
         }
 
         return $inviteCodeModel->user_id;
@@ -165,9 +174,16 @@ class RegisterService
             'invite_user_id' => $inviteUserId,
         ]);
 
-        // 保存用户
-        if (!$user->save()) {
-            return [false, [500, __('Register failed')]];
+        // 保存用户（并发同邮箱撞唯一索引时给出 400201 而非 500）
+        try {
+            if (!$user->save()) {
+                return [false, [500, __('Register failed')]];
+            }
+        } catch (\Illuminate\Database\QueryException $e) {
+            if (str_contains($e->getMessage(), 'Duplicate entry') || str_contains($e->getMessage(), 'UNIQUE')) {
+                return [false, [400201, __('Email already exists')]];
+            }
+            throw $e;
         }
 
         HookManager::call('user.register.after', $user);

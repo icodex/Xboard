@@ -353,7 +353,10 @@ class OrderService
             $this->order = $order;
 
             if ($shouldDispatch) {
-                OrderHandleJob::dispatchSync($order->trade_no);
+                // 异步开单：同步跑会把开套餐/清流量的耗时记进支付回调响应时间，
+                // 网关超时重发；且同步失败时订单停在 PROCESSING 无重试，队列
+                // worker（order_handle 队列，tries=3）失败会自动重开
+                OrderHandleJob::dispatch($order->trade_no);
             }
         } catch (\Exception $e) {
             Log::error($e);

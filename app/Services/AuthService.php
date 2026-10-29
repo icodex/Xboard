@@ -67,26 +67,4 @@ class AuthService
 
         return $tokenable instanceof User ? $tokenable : null;
     }
-
-    /**
-     * 解密认证数据
-     *
-     * @param string $authorization
-     * @return array|null 用户数据或null
-     */
-    public static function decryptAuthData(string $authorization): ?array
-    {
-        $user = self::findUserByBearerToken($authorization);
-        
-        if (!$user) {
-            return null;
-        }
-        
-        return [
-            'id' => $user->id,
-            'email' => $user->email,
-            'is_admin' => (bool)$user->is_admin,
-            'is_staff' => (bool)$user->is_staff
-        ];
-    }
 }

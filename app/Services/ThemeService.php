@@ -152,6 +152,11 @@ class ThemeService
                 throw new Exception('Theme name not configured');
             }
 
+            // config.json 在 zip 包内，name 会拼进拷贝目标路径，必须过目录名校验
+            if (!preg_match('/^[\w-]+$/', (string) $config['name'])) {
+                throw new Exception('Theme name can only contain letters, numbers, underscores and dashes');
+            }
+
             if (in_array($config['name'], self::SYSTEM_THEMES)) {
                 throw new Exception('Cannot upload theme with same name as system theme');
             }
@@ -253,7 +258,11 @@ class ThemeService
                 throw new Exception('Current theme cannot be deleted');
             }
 
-            $themePath = base_path(self::USER_THEME_DIR . $theme);
+            // getThemePath 校验 ^[\w-]+$，防止 name 穿越删掉主题目录之外的内容
+            $themePath = $this->getThemePath($theme);
+            if (!$themePath || !str_starts_with($themePath, base_path(self::USER_THEME_DIR))) {
+                throw new Exception('Theme not found');
+            }
             if (!File::exists($themePath)) {
                 throw new Exception('Theme not found');
             }
@@ -391,6 +400,7 @@ class ThemeService
      */
     public function refreshCurrentTheme(): bool
     {
+        $currentTheme = null;
         try {
             $currentTheme = admin_setting('current_theme');
             if (!$currentTheme) {

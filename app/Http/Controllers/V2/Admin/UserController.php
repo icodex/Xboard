@@ -46,6 +46,16 @@ class UserController extends Controller
         return $this->success($result);
     }
 
+    // CSV 单元格防公式注入：以 = + - @ 或制表符开头的字符串前置单引号
+    private static function csvSafeCell(?string $value): string
+    {
+        $value = (string) $value;
+        if ($value !== '' && strpbrk($value[0], "=+-@\t") !== false) {
+            return "'" . $value;
+        }
+        return $value;
+    }
+
     // Apply filters and sorts to the query builder.
     private function applyFiltersAndSorts(Request $request, Builder|QueryBuilder $builder): void
     {
@@ -120,11 +130,18 @@ class UserController extends Controller
                 : (int) $filterValue;
         }
 
-        // 处理计算字段
+        // 处理计算字段；字段名进 SQL 列位，白名单外的列（如 password/token）直接忽略，
+        // 否则可以借 like 运算逐字符探测任意列内容
         $queryField = match ($field) {
+            'id', 'email', 'plan_id', 'group_id', 'invite_user_id', 'transfer_enable',
+            'u', 'd', 'expired_at', 'banned', 'is_admin', 'is_staff', 'speed_limit',
+            'device_limit', 'balance', 'commission_balance', 'created_at' => $field,
             'total_used' => DB::raw('(u + d)'),
-            default => $field
+            default => null,
         };
+        if ($queryField === null) {
+            return;
+        }
 
         $this->applyQueryCondition($query, $queryField, $operator, $filterValue);
     }
@@ -139,6 +156,18 @@ class UserController extends Controller
         collect($request->input('sort'))->each(function ($sort) use ($builder) {
             $field = $sort['id'];
             $direction = $sort['desc'] ? 'DESC' : 'ASC';
+            // 与筛选同一份列白名单：白名单外不排序；total_used 无实体列，排序走同款表达式
+            if ($field === 'total_used') {
+                $builder->orderBy(DB::raw('(u + d)'), $direction);
+                return;
+            }
+            if (!in_array($field, [
+                'id', 'email', 'plan_id', 'group_id', 'invite_user_id', 'transfer_enable',
+                'u', 'd', 'expired_at', 'banned', 'is_admin', 'is_staff', 'speed_limit',
+                'device_limit', 'balance', 'commission_balance', 'created_at',
+            ], true)) {
+                return;
+            }
             $builder->orderBy($field, $direction);
         });
     }
@@ -359,13 +388,13 @@ class UserController extends Controller
                 foreach ($users as $user) {
                     try {
                         $row = [
-                            $user->email,
+                            self::csvSafeCell($user->email),
                             number_format($user->balance / 100, 2),
                             number_format($user->commission_balance / 100, 2),
                             Helper::trafficConvert($user->transfer_enable),
                             Helper::trafficConvert($user->transfer_enable - ($user->u + $user->d)),
                             $user->expired_at ? date('Y-m-d H:i:s', $user->expired_at) : '长期有效',
-                            $user->plan ? $user->plan->name : '无订阅',
+                            self::csvSafeCell($user->plan?->name),
                             Helper::getSubscribeUrl($user->token)
                         ];
                         fputcsv($output, $row);
@@ -407,7 +436,8 @@ class UserController extends Controller
             $userService = app(UserService::class);
             $user = $userService->createUser([
                 'email' => $email,
-                'password' => $request->input('password') ?? $email,
+                // 未指定密码时随机生成：默认密码=邮箱等于批量弱口令
+                'password' => $request->input('password') ?? Helper::randomChar(12),
                 'plan_id' => $request->input('plan_id'),
                 'expired_at' => $request->input('expired_at'),
             ]);
@@ -432,7 +462,8 @@ class UserController extends Controller
             $email = Helper::randomChar(6) . '@' . $request->input('email_suffix');
             $usersData[] = [
                 'email' => $email,
-                'password' => $request->input('password') ?? $email,
+                // 未指定密码时随机生成：默认密码=邮箱等于批量弱口令
+                'password' => $request->input('password') ?? Helper::randomChar(12),
                 'plan_id' => $request->input('plan_id'),
                 'expired_at' => $request->input('expired_at'),
             ];
@@ -446,7 +477,8 @@ class UserController extends Controller
             foreach ($usersData as $userData) {
                 $user = $userService->createUser($userData);
                 $user->save();
-                $users[] = $user;
+                // 明文密码只在本数组存活到回显；落库的是哈希
+                $users[] = ['user' => $user, 'password' => $userData['password']];
             }
             DB::commit();
         } catch (\Exception $e) {
@@ -454,33 +486,39 @@ class UserController extends Controller
             return $this->fail([500, '生成失败']);
         }
 
-        // 判断是否导出 CSV
-        if ($request->input('download_csv')) {
+        return $this->exportGeneratedUsers($users, (bool) $request->input('download_csv'));
+    }
+
+    /**
+     * 回显批量生成的账号（CSV 下载或 JSON）。$users 每项 = ['user' => User, 'password' => string]
+     */
+    private function exportGeneratedUsers(array $users, bool $downloadCsv)
+    {
+        if ($downloadCsv) {
             $headers = [
                 'Content-Type' => 'text/csv',
                 'Content-Disposition' => 'attachment; filename="users.csv"',
             ];
-            $callback = function () use ($users, $request) {
+            $callback = function () use ($users) {
                 $handle = fopen('php://output', 'w');
                 fputcsv($handle, ['账号', '密码', '过期时间', 'UUID', '创建时间', '订阅地址']);
-                foreach ($users as $user) {
+                foreach ($users as ['user' => $user, 'password' => $password]) {
                     $user = $user->refresh();
                     $expireDate = $user['expired_at'] === NULL ? '长期有效' : date('Y-m-d H:i:s', $user['expired_at']);
                     $createDate = date('Y-m-d H:i:s', $user['created_at']);
-                    $password = $request->input('password') ?? $user['email'];
                     $subscribeUrl = Helper::getSubscribeUrl($user['token']);
-                    fputcsv($handle, [$user['email'], $password, $expireDate, $user['uuid'], $createDate, $subscribeUrl]);
+                    fputcsv($handle, [self::csvSafeCell($user['email']), self::csvSafeCell($password), $expireDate, $user['uuid'], $createDate, $subscribeUrl]);
                 }
                 fclose($handle);
             };
             return response()->streamDownload($callback, 'users.csv', $headers);
         }
 
-        // 默认返回 JSON
-        $data = collect($users)->map(function ($user) use ($request) {
+        $data = collect($users)->map(function (array $entry) {
+            [$user, $password] = [$entry['user'], $entry['password']];
             return [
                 'email' => $user['email'],
-                'password' => $request->input('password') ?? $user['email'],
+                'password' => $password,
                 'expired_at' => $user['expired_at'] === NULL ? '长期有效' : date('Y-m-d H:i:s', $user['expired_at']),
                 'uuid' => $user['uuid'],
                 'created_at' => date('Y-m-d H:i:s', $user['created_at']),
@@ -515,7 +553,8 @@ class UserController extends Controller
             $email = $emailPrefix . '_' . $i . '@' . $emailSuffix;
             $usersData[] = [
                 'email' => $email,
-                'password' => $request->input('password') ?? $email,
+                // 未指定密码时随机生成：默认密码=邮箱等于批量弱口令
+                'password' => $request->input('password') ?? Helper::randomChar(12),
                 'plan_id' => $request->input('plan_id'),
                 'expired_at' => $request->input('expired_at'),
             ];
@@ -527,7 +566,8 @@ class UserController extends Controller
             foreach ($usersData as $userData) {
                 $user = $userService->createUser($userData);
                 $user->save();
-                $users[] = $user;
+                // 明文密码只在本数组存活到回显；落库的是哈希
+                $users[] = ['user' => $user, 'password' => $userData['password']];
             }
             DB::commit();
         } catch (\Exception $e) {
@@ -535,44 +575,7 @@ class UserController extends Controller
             return $this->fail([500, '生成失败']);
         }
 
-        // 判断是否导出 CSV
-        if ($request->input('download_csv')) {
-            $headers = [
-                'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="users.csv"',
-            ];
-            $callback = function () use ($users, $request) {
-                $handle = fopen('php://output', 'w');
-                fputcsv($handle, ['账号', '密码', '过期时间', 'UUID', '创建时间', '订阅地址']);
-                foreach ($users as $user) {
-                    $user = $user->refresh();
-                    $expireDate = $user['expired_at'] === NULL ? '长期有效' : date('Y-m-d H:i:s', $user['expired_at']);
-                    $createDate = date('Y-m-d H:i:s', $user['created_at']);
-                    $password = $request->input('password') ?? $user['email'];
-                    $subscribeUrl = Helper::getSubscribeUrl($user['token']);
-                    fputcsv($handle, [$user['email'], $password, $expireDate, $user['uuid'], $createDate, $subscribeUrl]);
-                }
-                fclose($handle);
-            };
-            return response()->streamDownload($callback, 'users.csv', $headers);
-        }
-
-        // 默认返回 JSON
-        $data = collect($users)->map(function ($user) use ($request) {
-            return [
-                'email' => $user['email'],
-                'password' => $request->input('password') ?? $user['email'],
-                'expired_at' => $user['expired_at'] === NULL ? '长期有效' : date('Y-m-d H:i:s', $user['expired_at']),
-                'uuid' => $user['uuid'],
-                'created_at' => date('Y-m-d H:i:s', $user['created_at']),
-                'subscribe_url' => Helper::getSubscribeUrl($user['token']),
-            ];
-        });
-        return response()->json([
-            'code' => 0,
-            'message' => '批量生成成功',
-            'data' => $data,
-        ]);
+        return $this->exportGeneratedUsers($users, (bool) $request->input('download_csv'));
     }
 
     public function sendMail(UserSendMail $request)
