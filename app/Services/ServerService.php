@@ -337,16 +337,17 @@ class ServerService
                 ...$baseConfig,
                 'version' => (int) $protocolSettings['version'],
                 'server_port' => (int) $serverPort,
-                'server_name' => $protocolSettings['tls']['server_name'],
-                'congestion_control' => $protocolSettings['congestion_control'],
-                'tls_settings' => $protocolSettings['tls'],
+                // tls 为 object 型配置，缺省时 cast 层保留 null，走 null-safe 读取
+                'server_name' => data_get($protocolSettings, 'tls.server_name'),
+                'congestion_control' => data_get($protocolSettings, 'congestion_control'),
+                'tls_settings' => data_get($protocolSettings, 'tls'),
             ],
             'anytls' => [
                 ...$baseConfig,
                 'server_port' => (int) $serverPort,
-                'server_name' => $protocolSettings['tls']['server_name'],
-                'tls_settings' => $protocolSettings['tls'],
-                'padding_scheme' => $protocolSettings['padding_scheme'],
+                'server_name' => data_get($protocolSettings, 'tls.server_name'),
+                'tls_settings' => data_get($protocolSettings, 'tls'),
+                'padding_scheme' => data_get($protocolSettings, 'padding_scheme'),
             ],
             'socks' => [
                 ...$baseConfig,
@@ -424,10 +425,27 @@ class ServerService
             $response['accept_proxy_protocol'] = true;
         }
 
-        // hysteria fork server.yaml 能力面板化（sniff/masquerade/quic/congestion/resolver
-        // + 开关类）。仅 hysteria 后端消费；双内核后端 JSON 容错忽略未知键。非空才下发。
+        // 通用入站策略（sniff 三键 + udp_idle_timeout）：sing-box 全入站 ListenOptions，
+        // xray 映射 sniffing{enabled,destOverride}。非空才下发。
+        $sniff = data_get($protocolSettings, 'sniff');
+        if (!empty($sniff)) {
+            $response['sniff'] = $sniff;
+        }
+        if ($udpIdleTimeout = (int) data_get($protocolSettings, 'udpIdleTimeout')) {
+            $response['udp_idle_timeout'] = $udpIdleTimeout;
+        }
+
+        // QUIC 调优：仅 hysteria2 与 TUIC 入站（sing-box QUICOptions）
+        if ($nodeType === 'hysteria' || $nodeType === 'tuic') {
+            $quic = data_get($protocolSettings, 'quic');
+            if (!empty($quic)) {
+                $response['quic'] = $quic;
+            }
+        }
+
+        // hysteria 专属策略（masquerade/congestion/resolver + 开关类），仅 hysteria 后端消费
         if ($nodeType === 'hysteria') {
-            foreach (['sniff', 'masquerade', 'quic', 'congestion', 'resolver'] as $policyKey) {
+            foreach (['masquerade', 'congestion', 'resolver'] as $policyKey) {
                 $policyValue = data_get($protocolSettings, $policyKey);
                 if (!empty($policyValue)) {
                     $response[$policyKey] = $policyValue;
@@ -435,9 +453,6 @@ class ServerService
             }
             if (data_get($protocolSettings, 'disableUDP')) {
                 $response['disable_udp'] = true;
-            }
-            if ($udpIdleTimeout = (int) data_get($protocolSettings, 'udpIdleTimeout')) {
-                $response['udp_idle_timeout'] = $udpIdleTimeout;
             }
             if (data_get($protocolSettings, 'ignoreClientBandwidth')) {
                 $response['ignore_client_bandwidth'] = true;

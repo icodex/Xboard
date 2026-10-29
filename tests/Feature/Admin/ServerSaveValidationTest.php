@@ -338,4 +338,55 @@ class ServerSaveValidationTest extends TestCase
         $errors = $this->validate(['version' => 2, 'resolver' => ['type' => 'dot']], 'hysteria')->errors();
         $this->assertTrue($errors->has('protocol_settings.resolver.type'));
     }
+
+    public function test_sniff_udp_policy_available_on_all_protocols(): void
+    {
+        $sniff = ['enable' => true, 'timeout' => 3, 'rewriteDomain' => true];
+        foreach (['vmess', 'vless', 'trojan', 'shadowsocks', 'tuic', 'anytls', 'socks', 'http', 'mieru'] as $type) {
+            $settings = match ($type) {
+                'vmess', 'vless' => ['tls' => 0, 'network' => 'tcp', 'sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'trojan' => ['network' => 'tcp', 'sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'shadowsocks' => ['cipher' => 'aes-256-gcm', 'sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'tuic' => ['sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'socks', 'anytls' => ['sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'http' => ['tls' => 1, 'sniff' => $sniff, 'udpIdleTimeout' => 60],
+                'mieru' => ['transport' => 'TCP', 'traffic_pattern' => '', 'sniff' => $sniff, 'udpIdleTimeout' => 60],
+                default => ['sniff' => $sniff],
+            };
+            $this->assertFalse($this->validate($settings, $type)->fails(), "sniff/udpIdleTimeout should validate for {$type}");
+        }
+
+        // range check applies everywhere
+        $errors = $this->validate(['tls' => 0, 'network' => 'tcp', 'udpIdleTimeout' => 601], 'vless')->errors();
+        $this->assertTrue($errors->has('protocol_settings.udpIdleTimeout'));
+    }
+
+    public function test_quic_rules_only_on_quic_protocols(): void
+    {
+        $quic = ['disablePathMTUDiscovery' => true];
+        $this->assertFalse($this->validate(['tls' => 0, 'network' => 'tcp', 'quic' => $quic], 'vless')->fails()
+            || $this->validate(['quic' => $quic], 'tuic')->fails()
+            || $this->validate(['version' => 2, 'quic' => $quic], 'hysteria')->fails());
+
+        $errors = $this->validate(['quic' => ['initStreamReceiveWindow' => 1024]], 'tuic')->errors();
+        $this->assertTrue($errors->has('protocol_settings.quic.initStreamReceiveWindow'));
+    }
+
+    public function test_naive_http_reject_reality(): void
+    {
+        foreach (['naive', 'http'] as $type) {
+            $errors = $this->validate(['tls' => 2], $type)->errors();
+            $this->assertTrue($errors->has('protocol_settings.tls'), "{$type} tls=2 should fail");
+            $this->assertFalse($this->validate(['tls' => 1], $type)->fails(), "{$type} tls=1 should pass");
+        }
+    }
+
+    public function test_tuic_congestion_control_enum(): void
+    {
+        foreach (['cubic', 'new_reno', 'bbr'] as $cc) {
+            $this->assertFalse($this->validate(['congestion_control' => $cc], 'tuic')->fails(), "congestion_control={$cc} should pass");
+        }
+        $errors = $this->validate(['congestion_control' => 'hybla'], 'tuic')->errors();
+        $this->assertTrue($errors->has('protocol_settings.congestion_control'));
+    }
 }

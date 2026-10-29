@@ -24,6 +24,33 @@ class ServerSave extends FormRequest
         'multiplex.brutal.down_mbps' => 'nullable|integer',
     ];
 
+    // 通用入站策略：sniff 三键 + udpIdleTimeout，全部协议可用
+    // （sing-box ListenOptions 全入站具备；xray 映射 sniffing{enabled,destOverride}）。
+    // tcpPorts/udpPorts 两内核均无入站级过滤，存而下发由节点 warn-drop。
+    private const SNIFF_UDP_RULES = [
+        'sniff' => 'nullable|array',
+        'sniff.enable' => 'nullable|boolean',
+        'sniff.timeout' => 'nullable|integer|min:1|max:60',
+        'sniff.rewriteDomain' => 'nullable|boolean',
+        'sniff.tcpPorts' => 'nullable|string',
+        'sniff.udpPorts' => 'nullable|string',
+        'udpIdleTimeout' => 'nullable|integer|min:2|max:600',
+    ];
+
+    // QUIC 入站调优：仅 hysteria2 与 TUIC（sing-box 两入站均嵌 QUICOptions）；
+    // 节点侧仅消费 disablePathMTUDiscovery，窗口/超时/流数 warn-drop。
+    private const QUIC_RULES = [
+        'quic' => 'nullable|array',
+        'quic.initStreamReceiveWindow' => 'nullable|integer|min:16384',
+        'quic.maxStreamReceiveWindow' => 'nullable|integer|min:16384',
+        'quic.initConnReceiveWindow' => 'nullable|integer|min:16384',
+        'quic.maxConnReceiveWindow' => 'nullable|integer|min:16384',
+        'quic.maxIdleTimeout' => 'nullable|integer|min:4|max:120',
+        'quic.maxIncomingStreams' => 'nullable|integer|min:8',
+        'quic.disablePathMTUDiscovery' => 'nullable|boolean',
+        'quic.disableStatelessReset' => 'nullable|boolean',
+    ];
+
     // 内核实际消费的传输层；kcp/quic/raw 等节点端无实现
     private const NETWORK_RULE = 'required|string|in:tcp,ws,grpc,h2,http,httpupgrade,xhttp,splithttp';
 
@@ -38,6 +65,8 @@ class ServerSave extends FormRequest
         'config' => 'nullable|string',
         'query_server_name' => 'nullable|string',
         'key' => 'nullable|string',
+        // 双内核均消费 key_path（sing-box ech.key_path / xray 读文件转 echServerKeys）
+        'key_path' => 'nullable|string',
     ];
 
     private const REALITY_RULES = [
@@ -123,9 +152,8 @@ class ServerSave extends FormRequest
             'accept_proxy_protocol' => 'nullable|boolean',
         ],
         // hysteria fork server.yaml 能力面板化：字段语义/范围与 server.yaml 对齐
-        // （QUIC 窗口下限 16384、udpIdleTimeout 2-600s、masquerade.statusCode
-        //  200-599 且 233 为 hysteria 控制端口保留值）。顶层 alpn 死规则已删，
-        // 真 ALPN 走 tls.alpn（buildTlsObjectRules）。
+        // （masquerade.statusCode 200-599 且 233 为 hysteria 控制端口保留值）。
+        // 通用 sniff/udpIdleTimeout/quic 走 SNIFF_UDP_RULES/QUIC_RULES 共享合并。
         'hysteria' => [
             'version' => 'required|integer|in:1,2',
             'obfs.open' => 'nullable|boolean',
@@ -136,12 +164,6 @@ class ServerSave extends FormRequest
             'bandwidth.disableLossCompensation' => 'nullable|boolean',
             'hop_interval' => 'integer|nullable', // 仅客户端订阅消费（SingBox/ClashMeta 端口跳跃），不下发节点
             'accept_proxy_protocol' => 'nullable|boolean',
-            'sniff' => 'nullable|array',
-            'sniff.enable' => 'nullable|boolean',
-            'sniff.timeout' => 'nullable|integer|min:1|max:60',
-            'sniff.rewriteDomain' => 'nullable|boolean',
-            'sniff.tcpPorts' => 'nullable|string',
-            'sniff.udpPorts' => 'nullable|string',
             'masquerade' => 'nullable|array',
             'masquerade.type' => 'nullable|string|in:404,file,proxy,string',
             'masquerade.listenHTTP' => 'nullable|string',
@@ -154,15 +176,6 @@ class ServerSave extends FormRequest
             'masquerade.proxy.insecure' => 'nullable|boolean',
             'masquerade.string.content' => 'nullable|string',
             'masquerade.string.statusCode' => 'nullable|integer|min:200|max:599|not_in:233',
-            'quic' => 'nullable|array',
-            'quic.initStreamReceiveWindow' => 'nullable|integer|min:16384',
-            'quic.maxStreamReceiveWindow' => 'nullable|integer|min:16384',
-            'quic.initConnReceiveWindow' => 'nullable|integer|min:16384',
-            'quic.maxConnReceiveWindow' => 'nullable|integer|min:16384',
-            'quic.maxIdleTimeout' => 'nullable|integer|min:4|max:120',
-            'quic.maxIncomingStreams' => 'nullable|integer|min:8',
-            'quic.disablePathMTUDiscovery' => 'nullable|boolean',
-            'quic.disableStatelessReset' => 'nullable|boolean',
             'congestion' => 'nullable|array',
             'congestion.type' => 'nullable|string|in:bbr,reno',
             // 枚举与 sing-box fork / hysteria core ParseProfile 一致（双后端同校验）
@@ -182,7 +195,6 @@ class ServerSave extends FormRequest
             'resolver.https.sni' => 'nullable|string',
             'resolver.https.insecure' => 'nullable|boolean',
             'disableUDP' => 'nullable|boolean',
-            'udpIdleTimeout' => 'nullable|integer|min:2|max:600',
             'ignoreClientBandwidth' => 'nullable|boolean',
         ],
         'vless' => [
@@ -202,16 +214,18 @@ class ServerSave extends FormRequest
         'socks' => [
             'tls' => 'nullable|integer|not_in:1,2',
         ],
+        // naive/http 内核入站无 Reality（tls=2 静默明文），同 socks 手法只许 0/1
         'naive' => [
-            'tls' => 'required|' . self::TLS_LEVEL_RULE,
+            'tls' => 'required|integer|not_in:2',
         ],
         'http' => [
-            'tls' => 'required|' . self::TLS_LEVEL_RULE,
+            'tls' => 'required|integer|not_in:2',
             'accept_proxy_protocol' => 'nullable|boolean',
         ],
         'tuic' => [
             'version' => 'nullable|integer',
-            'congestion_control' => 'nullable|string',
+            // sing-box TUIC 入站枚举
+            'congestion_control' => 'nullable|string|in:cubic,new_reno,bbr',
             'alpn' => 'nullable|array',
             'udp_relay_mode' => 'nullable|string',
         ],
@@ -221,7 +235,6 @@ class ServerSave extends FormRequest
         ],
         'anytls' => [
             'tls' => 'nullable|array',
-            'alpn' => 'nullable|string',
             'padding_scheme' => 'nullable|array',
         ],
     ];
@@ -268,6 +281,12 @@ class ServerSave extends FormRequest
     {
         $rules = self::PROTOCOL_RULES[$type] ?? [];
 
+        // 通用入站策略全协议可用；QUIC 调优仅 QUIC 系协议
+        $rules = array_merge($rules, self::SNIFF_UDP_RULES);
+        if ($type === 'hysteria' || $type === 'tuic') {
+            $rules = array_merge($rules, self::QUIC_RULES);
+        }
+
         return match ($type) {
             'vmess' => array_merge(
                 $rules,
@@ -291,10 +310,7 @@ class ServerSave extends FormRequest
                 $rules,
                 $this->buildTlsObjectRules(),
             ),
-            'mieru' => array_merge(
-                $rules,
-                self::MULTIPLEX_RULES,
-            ),
+            'mieru' => $rules,
             'vless' => array_merge(
                 $rules,
                 $this->buildTlsSettingsRules(),
@@ -392,6 +408,7 @@ class ServerSave extends FormRequest
             'protocol_settings.tls_settings.ech.config' => 'ECH配置',
             'protocol_settings.tls_settings.ech.query_server_name' => 'ECH查询域名',
             'protocol_settings.tls_settings.ech.key' => 'ECH密钥',
+            'protocol_settings.tls_settings.ech.key_path' => 'ECH密钥路径',
             'protocol_settings.tls_settings.alpn' => 'ALPN',
             'protocol_settings.tls.alpn' => 'ALPN',
             'protocol_settings.accept_proxy_protocol' => '接受PROXY Protocol',
@@ -418,6 +435,7 @@ class ServerSave extends FormRequest
             'protocol_settings.tls.ech.config' => 'ECH配置',
             'protocol_settings.tls.ech.query_server_name' => 'ECH查询域名',
             'protocol_settings.tls.ech.key' => 'ECH密钥',
+            'protocol_settings.tls.ech.key_path' => 'ECH密钥路径',
         ];
     }
 
@@ -453,6 +471,10 @@ class ServerSave extends FormRequest
 
         if ($this->input('type') === 'socks') {
             $messages['protocol_settings.tls.not_in'] = 'socks 节点不支持 TLS（内核无 TLS 入站，开启后实际明文），请保持关闭';
+        }
+
+        if ($this->input('type') === 'naive' || $this->input('type') === 'http') {
+            $messages['protocol_settings.tls.not_in'] = ':attribute 不支持 Reality（tls=2 内核无实现会被静默忽略），请使用 0 或 1';
         }
 
         if ($this->input('type') === 'shadowsocks') {

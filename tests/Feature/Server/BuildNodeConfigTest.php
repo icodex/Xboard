@@ -164,4 +164,54 @@ class BuildNodeConfigTest extends TestCase
             $this->assertArrayNotHasKey($key, $config, "{$key} should be omitted");
         }
     }
+
+    public function test_generic_policy_sent_for_all_protocols(): void
+    {
+        $makeConfig = function (string $type, array $protocolSettings) {
+            $server = Server::create([
+                'name' => "policy-{$type}",
+                'type' => $type,
+                'host' => '127.0.0.1',
+                'port' => 443,
+                'server_port' => 443,
+                'rate' => '1',
+                'group_id' => [1],
+                'enabled' => true,
+                'protocol_settings' => $protocolSettings,
+            ]);
+            return ServerService::buildNodeConfig($server);
+        };
+
+        // vless: sniff + udp_idle_timeout
+        $config = $makeConfig(Server::TYPE_VLESS, [
+            'tls' => 0,
+            'network' => 'tcp',
+            'sniff' => ['enable' => true, 'timeout' => 3, 'rewriteDomain' => true],
+            'udpIdleTimeout' => 60,
+        ]);
+        $this->assertSame(['enable' => true, 'timeout' => 3, 'rewriteDomain' => true, 'tcpPorts' => null, 'udpPorts' => null], $config['sniff']);
+        $this->assertSame(60, $config['udp_idle_timeout']);
+
+        // shadowsocks: sniff without udp
+        $config = $makeConfig(Server::TYPE_SHADOWSOCKS, [
+            'cipher' => 'aes-256-gcm',
+            'sniff' => ['enable' => true],
+        ]);
+        $this->assertTrue($config['sniff']['enable']);
+        $this->assertArrayNotHasKey('udp_idle_timeout', $config);
+
+        // tuic: quic passthrough
+        $config = $makeConfig(Server::TYPE_TUIC, [
+            'quic' => ['disablePathMTUDiscovery' => true],
+        ]);
+        $this->assertSame(['initStreamReceiveWindow' => null, 'maxStreamReceiveWindow' => null, 'initConnReceiveWindow' => null, 'maxConnReceiveWindow' => null, 'maxIdleTimeout' => null, 'maxIncomingStreams' => null, 'disablePathMTUDiscovery' => true, 'disableStatelessReset' => false], $config['quic']);
+
+        // non-QUIC protocol never gets quic
+        $config = $makeConfig(Server::TYPE_VLESS, [
+            'tls' => 0,
+            'network' => 'tcp',
+            'quic' => ['disablePathMTUDiscovery' => true],
+        ]);
+        $this->assertArrayNotHasKey('quic', $config);
+    }
 }

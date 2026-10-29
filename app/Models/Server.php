@@ -167,6 +167,40 @@ class Server extends Model
         'accept_proxy_protocol' => ['type' => 'boolean', 'default' => false],
     ];
 
+    // 通用入站策略：sing-box ListenOptions 对全部入站提供（sniff 三键 + udp_timeout），
+    // xray 映射 sniffing{enabled,destOverride}。全部协议可用。
+    private const SNIFF_UDP_CONFIGURATION = [
+        'sniff' => [
+            'type' => 'object',
+            'fields' => [
+                'enable' => ['type' => 'boolean', 'default' => false],
+                'timeout' => ['type' => 'integer', 'default' => null],
+                'rewriteDomain' => ['type' => 'boolean', 'default' => false],
+                'tcpPorts' => ['type' => 'string', 'default' => null],
+                'udpPorts' => ['type' => 'string', 'default' => null],
+            ]
+        ],
+        'udpIdleTimeout' => ['type' => 'integer', 'default' => null],
+    ];
+
+    // QUIC 入站调优：hysteria2 与 TUIC 入站均嵌 sing-box QUICOptions；
+    // 节点侧仅消费 disablePathMTUDiscovery，窗口/超时/流数 warn-drop。
+    private const QUIC_CONFIGURATION = [
+        'quic' => [
+            'type' => 'object',
+            'fields' => [
+                'initStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
+                'maxStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
+                'initConnReceiveWindow' => ['type' => 'integer', 'default' => null],
+                'maxConnReceiveWindow' => ['type' => 'integer', 'default' => null],
+                'maxIdleTimeout' => ['type' => 'integer', 'default' => null],
+                'maxIncomingStreams' => ['type' => 'integer', 'default' => null],
+                'disablePathMTUDiscovery' => ['type' => 'boolean', 'default' => false],
+                'disableStatelessReset' => ['type' => 'boolean', 'default' => false],
+            ]
+        ],
+    ];
+
     private const REALITY_CONFIGURATION = [
         'reality_settings' => [
             'type' => 'object',
@@ -239,7 +273,8 @@ class Server extends Model
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
             ...self::UTLS_CONFIGURATION,
-            ...self::ACCEPT_PROXY_PROTOCOL
+            ...self::ACCEPT_PROXY_PROTOCOL,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_VMESS => [
             'tls' => ['type' => 'integer', 'default' => 0],
@@ -250,7 +285,8 @@ class Server extends Model
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
             ...self::UTLS_CONFIGURATION,
-            ...self::ACCEPT_PROXY_PROTOCOL
+            ...self::ACCEPT_PROXY_PROTOCOL,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_VLESS => [
             'tls' => ['type' => 'integer', 'default' => 0],
@@ -270,14 +306,16 @@ class Server extends Model
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
             ...self::UTLS_CONFIGURATION,
-            ...self::ACCEPT_PROXY_PROTOCOL
+            ...self::ACCEPT_PROXY_PROTOCOL,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_SHADOWSOCKS => [
             'cipher' => ['type' => 'string', 'default' => null],
             'obfs' => ['type' => 'string', 'default' => null],
             'obfs_settings' => ['type' => 'array', 'default' => null],
             'plugin' => ['type' => 'string', 'default' => null],
-            'plugin_opts' => ['type' => 'string', 'default' => null]
+            'plugin_opts' => ['type' => 'string', 'default' => null],
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_HYSTERIA => [
             'version' => ['type' => 'integer', 'default' => 2],
@@ -300,18 +338,8 @@ class Server extends Model
             ],
             'tls' => self::TLS_CONFIGURATION,
             'hop_interval' => ['type' => 'integer', 'default' => null],
-            // 以下为 hysteria fork server.yaml 能力面板化（仅 hysteria 后端消费，
-            // 双内核后端 JSON 容错忽略未知键）。字段语义与 server.yaml 一一对应。
-            'sniff' => [
-                'type' => 'object',
-                'fields' => [
-                    'enable' => ['type' => 'boolean', 'default' => false],
-                    'timeout' => ['type' => 'integer', 'default' => null],
-                    'rewriteDomain' => ['type' => 'boolean', 'default' => false],
-                    'tcpPorts' => ['type' => 'string', 'default' => null],
-                    'udpPorts' => ['type' => 'string', 'default' => null],
-                ]
-            ],
+            // hysteria 专属策略（masquerade/bbr 档位/带宽开关），字段语义与
+            // hysteria server.yaml 一一对应；通用 sniff/udpIdleTimeout/quic 见共享常量
             'masquerade' => [
                 'type' => 'object',
                 'fields' => [
@@ -339,19 +367,6 @@ class Server extends Model
                             'statusCode' => ['type' => 'integer', 'default' => null],
                         ]
                     ],
-                ]
-            ],
-            'quic' => [
-                'type' => 'object',
-                'fields' => [
-                    'initStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
-                    'maxStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
-                    'initConnReceiveWindow' => ['type' => 'integer', 'default' => null],
-                    'maxConnReceiveWindow' => ['type' => 'integer', 'default' => null],
-                    'maxIdleTimeout' => ['type' => 'integer', 'default' => null],
-                    'maxIncomingStreams' => ['type' => 'integer', 'default' => null],
-                    'disablePathMTUDiscovery' => ['type' => 'boolean', 'default' => false],
-                    'disableStatelessReset' => ['type' => 'boolean', 'default' => false],
                 ]
             ],
             'congestion' => [
@@ -400,8 +415,9 @@ class Server extends Model
                 ]
             ],
             'disableUDP' => ['type' => 'boolean', 'default' => false],
-            'udpIdleTimeout' => ['type' => 'integer', 'default' => null],
             'ignoreClientBandwidth' => ['type' => 'boolean', 'default' => false],
+            ...self::SNIFF_UDP_CONFIGURATION,
+            ...self::QUIC_CONFIGURATION,
             ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_TUIC => [
@@ -409,7 +425,9 @@ class Server extends Model
             'congestion_control' => ['type' => 'string', 'default' => 'cubic'],
             'alpn' => ['type' => 'array', 'default' => ['h3']],
             'udp_relay_mode' => ['type' => 'string', 'default' => 'native'],
-            'tls' => self::TLS_CONFIGURATION
+            'tls' => self::TLS_CONFIGURATION,
+            ...self::QUIC_CONFIGURATION,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_ANYTLS => [
             'padding_scheme' => [
@@ -426,25 +444,29 @@ class Server extends Model
                     "7=500-1000"
                 ]
             ],
-            'tls' => self::TLS_CONFIGURATION
+            'tls' => self::TLS_CONFIGURATION,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_SOCKS => [
             'tls' => ['type' => 'integer', 'default' => 0],
-            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION
+            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_NAIVE => [
             'tls' => ['type' => 'integer', 'default' => 0],
-            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION
+            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_HTTP => [
             'tls' => ['type' => 'integer', 'default' => 0],
             'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
-            ...self::ACCEPT_PROXY_PROTOCOL
+            ...self::ACCEPT_PROXY_PROTOCOL,
+            ...self::SNIFF_UDP_CONFIGURATION
         ],
         self::TYPE_MIERU => [
             'transport' => ['type' => 'string', 'default' => 'TCP'],
             'traffic_pattern' => ['type' => 'string', 'default' => ''],
-            ...self::MULTIPLEX_CONFIGURATION,
+            ...self::SNIFF_UDP_CONFIGURATION
         ]
     ];
 
