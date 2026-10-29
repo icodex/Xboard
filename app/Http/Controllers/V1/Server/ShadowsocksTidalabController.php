@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\V1\Server;
 
-use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
-use App\Models\ServerShadowsocks;
 use App\Services\ServerService;
 use App\Services\UserService;
 use App\Utils\CacheKey;
@@ -29,7 +27,8 @@ class ShadowsocksTidalabController extends Controller
             array_push($result, [
                 'id' => $user->id,
                 'port' => $server->server_port,
-                'cipher' => $server->cipher,
+                // 单表化后 cipher 在 protocol_settings，模型无顶层属性（原样读取恒为 null）
+                'cipher' => data_get($server->protocol_settings, 'cipher'),
                 'secret' => $user->uuid
             ]);
         }

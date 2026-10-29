@@ -21,7 +21,27 @@ class KnowledgeController extends Controller
         $this->userService = $userService;
     }
 
+    /**
+     * 分类列表（v2board 契约：data = 分类名数组）。
+     * 路由遗留自 v2board，上游控制器重写时方法丢失，旧前端知识库页依赖此端点。
+     */
+    public function getCategory(Request $request)
+    {
+        $request->validate([
+            'language' => 'nullable|sometimes|string|max:10',
+        ]);
+
+        $categories = Knowledge::where('show', 1)
+            ->where('language', $request->input('language', 'zh-CN'))
+            ->pluck('category')
+            ->unique()
+            ->values();
+
+        return $this->success($categories);
+    }
+
     public function fetch(Request $request)
+
     {
         $request->validate([
             'id' => 'nullable|sometimes|integer|min:1',
