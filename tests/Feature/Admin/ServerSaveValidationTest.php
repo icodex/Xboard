@@ -306,7 +306,7 @@ class ServerSaveValidationTest extends TestCase
                 'maxIncomingStreams' => 1024,
                 'disablePathMTUDiscovery' => true,
             ],
-            'congestion' => ['type' => 'bbr', 'bbrProfile' => 'high'],
+            'congestion' => ['type' => 'bbr', 'bbrProfile' => 'aggressive'],
             'resolver' => ['type' => 'https', 'https' => ['addr' => '1.1.1.1:443', 'timeout' => 10, 'sni' => 'cloudflare-dns.com', 'insecure' => false]],
             'disableUDP' => false,
             'udpIdleTimeout' => 60,
@@ -327,6 +327,10 @@ class ServerSaveValidationTest extends TestCase
 
         $errors = $this->validate(['version' => 2, 'congestion' => ['type' => 'cubic']], 'hysteria')->errors();
         $this->assertTrue($errors->has('protocol_settings.congestion.type'));
+
+        // BBR profile enum matches sing-box fork and hysteria core parsers
+        $errors = $this->validate(['version' => 2, 'congestion' => ['type' => 'bbr', 'bbrProfile' => 'high']], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.congestion.bbrProfile'));
 
         $errors = $this->validate(['version' => 2, 'udpIdleTimeout' => 601], 'hysteria')->errors();
         $this->assertTrue($errors->has('protocol_settings.udpIdleTimeout'));

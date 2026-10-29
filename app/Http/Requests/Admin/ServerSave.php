@@ -165,7 +165,8 @@ class ServerSave extends FormRequest
             'quic.disableStatelessReset' => 'nullable|boolean',
             'congestion' => 'nullable|array',
             'congestion.type' => 'nullable|string|in:bbr,reno',
-            'congestion.bbrProfile' => 'nullable|string',
+            // 枚举与 sing-box fork / hysteria core ParseProfile 一致（双后端同校验）
+            'congestion.bbrProfile' => 'nullable|string|in:standard,conservative,aggressive',
             'resolver' => 'nullable|array',
             'resolver.type' => 'nullable|string|in:tcp,udp,tls,https',
             'resolver.tcp.addr' => 'nullable|string',
