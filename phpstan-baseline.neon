@@ -124,6 +124,12 @@ parameters:
 			path: app/WebSocket/NodeWorker.php
 
 		-
+			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$lastPongAt\.$#'
+			identifier: property.notFound
+			count: 3
+			path: app/WebSocket/NodeWorker.php
+
+		-
 			message: '#^Access to an undefined property Workerman\\Connection\\TcpConnection\:\:\$machineId\.$#'
 			identifier: property.notFound
 			count: 1

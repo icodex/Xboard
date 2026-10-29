@@ -95,6 +95,7 @@ class NodeWorker
 
         Timer::add(self::PING_INTERVAL, function () {
             $this->safeCall('ping', function () {
+                /** @var array<int, true> $seen */
                 $seen = [];
 
                 $pingOrKick = function (TcpConnection $conn) use ($seen): void {
