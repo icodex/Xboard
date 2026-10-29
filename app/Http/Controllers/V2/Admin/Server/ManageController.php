@@ -78,8 +78,9 @@ class ManageController extends Controller
     public function update(Request $request)
     {
         // update() 只做局部字段切换；白名单之外的键若静默剥离，调用方会拿到假成功
-        // （如 server_port 改了但库里没动、节点收不到变更），必须显式拒绝并指路 save()
-        $allowed = ['id', 'show', 'machine_id', 'enabled'];
+        // （如 server_port 改了但库里没动、节点收不到变更），必须显式拒绝并指路 save()。
+        // type 例外：旧版前端开关请求会回显节点 type（身份标识，非改值），收下并忽略。
+        $allowed = ['id', 'show', 'machine_id', 'enabled', 'type'];
         $unknown = array_diff(array_keys($request->all()), $allowed);
         if ($unknown) {
             return $this->fail([400, '不支持的字段: ' . implode(',', $unknown) . '，请改用 server/manage/save']);
@@ -90,6 +91,7 @@ class ManageController extends Controller
             'show' => 'nullable|integer',
             'machine_id' => 'nullable|integer',
             'enabled' => 'nullable|boolean',
+            'type' => 'nullable|string',
         ]);
 
         $server = Server::find($request->id);
