@@ -33,3 +33,4 @@ compose.host.yaml
 compose.split.yaml
 .scribe
 database/testing-unit.sqlite*
+.claude/
