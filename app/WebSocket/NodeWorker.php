@@ -20,6 +20,8 @@ class NodeWorker
 {
     private const AUTH_TIMEOUT = 10;
     private const PING_INTERVAL = 55;
+    // 连续 3 个 ping 周期无 pong 即判死链（NAT 超时/节点进程僵死但 TCP 未断）
+    private const PONG_TIMEOUT = 180;
 
     public const HEARTBEAT_CACHE_KEY = 'ws_server:heartbeat';
     private const HEARTBEAT_INTERVAL = 10;
@@ -95,25 +97,39 @@ class NodeWorker
             $this->safeCall('ping', function () {
                 $seen = [];
 
+                $pingOrKick = function (TcpConnection $conn) use ($seen): void {
+                    $oid = spl_object_id($conn);
+                    if (isset($seen[$oid])) {
+                        return;
+                    }
+                    $seen[$oid] = true;
+
+                    // Pong 超时踢除：只发不查会让半开连接（NAT 超时/节点僵死）
+                    // 无限期占着 registry，面板对着死连接推 sync.* 无人接收。
+                    // lastPongAt 在认证成功时初始化，未认证连接交给 AUTH_TIMEOUT。
+                    if (!empty($conn->lastPongAt) && time() - $conn->lastPongAt > self::PONG_TIMEOUT) {
+                        Log::warning('[WS] Dropping silent connection, no pong for ' . (time() - $conn->lastPongAt) . 's', [
+                            'node_id' => $conn->nodeId ?? null,
+                            'machine_id' => $conn->machineId ?? null,
+                        ]);
+                        $conn->close();
+                        return;
+                    }
+
+                    $conn->send(json_encode(['event' => 'ping']));
+                };
+
                 foreach (NodeRegistry::getConnectedNodeIds() as $nodeId) {
                     $conn = NodeRegistry::get($nodeId);
                     if ($conn) {
-                        $oid = spl_object_id($conn);
-                        if (!isset($seen[$oid])) {
-                            $seen[$oid] = true;
-                            $conn->send(json_encode(['event' => 'ping']));
-                        }
+                        $pingOrKick($conn);
                     }
                 }
 
                 foreach (NodeRegistry::getConnectedMachineIds() as $machineId) {
                     $conn = NodeRegistry::getMachine($machineId);
                     if ($conn) {
-                        $oid = spl_object_id($conn);
-                        if (!isset($seen[$oid])) {
-                            $seen[$oid] = true;
-                            $conn->send(json_encode(['event' => 'ping']));
-                        }
+                        $pingOrKick($conn);
                     }
                 }
             });
@@ -230,6 +246,7 @@ class NodeWorker
         }
 
         $conn->nodeId = $nodeId;
+        $conn->lastPongAt = time();
         NodeRegistry::add($nodeId, $conn);
         Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"), true, 86400);
 
@@ -290,6 +307,7 @@ class NodeWorker
         // 连接上记录所属机器和节点列表
         $conn->machineId = $machineId;
         $conn->machineNodeIds = $nodeIds;
+        $conn->lastPongAt = time();
 
         Log::info("[WS] Machine#{$machineId} connected, nodes: " . implode(',', $nodeIds), [
             'remote' => $conn->getRemoteIp(),
@@ -319,6 +337,11 @@ class NodeWorker
         }
 
         $event = $msg['event'] ?? '';
+
+        // 任何 pong 都刷新连接活性（pong 超时踢除依赖此时间戳）
+        if ($event === 'pong') {
+            $conn->lastPongAt = time();
+        }
 
         $this->safeCall("message.{$event}", function () use ($conn, $msg, $event) {
             // 机器连接：从消息中读取 node_id 来分派到具体节点
