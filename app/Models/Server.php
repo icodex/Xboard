@@ -33,6 +33,8 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
  * @property int|null $sort 排序
  * @property array|null $protocol_settings 协议设置
  * @property string|null $kernel_log_level 内核日志等级覆盖（下发 kernel_log_level；空 = 节点侧派生）
+ * @property string|null $kernel_type 每节点内核选择 singbox/xray/auto（下发 kernel_type；空 = 节点侧 auto 解析）
+ * @property array|null $custom_route_rules 结构化跨内核路由规则（下发 custom_route_rules，双内核通用）
  * @property int $created_at
  * @property int $updated_at
  * 
@@ -121,6 +123,7 @@ class Server extends Model
         'protocol_settings' => 'array',
         'custom_outbounds' => 'array',
         'custom_routes' => 'array',
+        'custom_route_rules' => 'array',
         'cert_config' => 'array',
         'last_check_at' => 'integer',
         'last_push_at' => 'integer',
@@ -156,6 +159,12 @@ class Server extends Model
                 ]
             ]
         ]
+    ];
+
+    // PROXY protocol 仅 xray 内核生效（sockopt.acceptProxyProtocol，保留真实源 IP 供
+    // 设备限制/在线统计）；sing-box 忽略并告警。xboard-node NodeSpec.AcceptProxyProtocol。
+    private const ACCEPT_PROXY_PROTOCOL = [
+        'accept_proxy_protocol' => ['type' => 'boolean', 'default' => false],
     ];
 
     private const REALITY_CONFIGURATION = [
@@ -202,6 +211,9 @@ class Server extends Model
         'fields' => [
             'server_name' => ['type' => 'string', 'default' => null],
             'allow_insecure' => ['type' => 'boolean', 'default' => false],
+            // 双内核均透传消费（singbox tls.alpn / xray tlsSettings.alpn）；
+            // hysteria/tuic 缺省由节点补 h3
+            'alpn' => ['type' => 'array', 'default' => null],
             ...self::ECH_CONFIGURATION,
         ]
     ];
@@ -211,6 +223,7 @@ class Server extends Model
         'fields' => [
             'server_name' => ['type' => 'string', 'default' => null],
             'allow_insecure' => ['type' => 'boolean', 'default' => false],
+            'alpn' => ['type' => 'array', 'default' => null],
             ...self::ECH_CONFIGURATION,
         ]
     ];
@@ -225,7 +238,8 @@ class Server extends Model
             'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
-            ...self::UTLS_CONFIGURATION
+            ...self::UTLS_CONFIGURATION,
+            ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_VMESS => [
             'tls' => ['type' => 'integer', 'default' => 0],
@@ -235,7 +249,8 @@ class Server extends Model
             'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
-            ...self::UTLS_CONFIGURATION
+            ...self::UTLS_CONFIGURATION,
+            ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_VLESS => [
             'tls' => ['type' => 'integer', 'default' => 0],
@@ -254,7 +269,8 @@ class Server extends Model
             'network_settings' => ['type' => 'array', 'default' => null],
             ...self::REALITY_CONFIGURATION,
             ...self::MULTIPLEX_CONFIGURATION,
-            ...self::UTLS_CONFIGURATION
+            ...self::UTLS_CONFIGURATION,
+            ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_SHADOWSOCKS => [
             'cipher' => ['type' => 'string', 'default' => null],
@@ -281,7 +297,8 @@ class Server extends Model
                 ]
             ],
             'tls' => self::TLS_CONFIGURATION,
-            'hop_interval' => ['type' => 'integer', 'default' => null]
+            'hop_interval' => ['type' => 'integer', 'default' => null],
+            ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_TUIC => [
             'version' => ['type' => 'integer', 'default' => 5],
@@ -317,7 +334,8 @@ class Server extends Model
         ],
         self::TYPE_HTTP => [
             'tls' => ['type' => 'integer', 'default' => 0],
-            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION
+            'tls_settings' => self::TLS_SETTINGS_CONFIGURATION,
+            ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_MIERU => [
             'transport' => ['type' => 'string', 'default' => 'TCP'],

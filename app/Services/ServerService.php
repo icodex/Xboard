@@ -318,15 +318,17 @@ class ServerService
                 'server_port' => (int) $serverPort,
                 'version' => (int) $protocolSettings['version'],
                 'host' => $host,
-                'server_name' => $protocolSettings['tls']['server_name'],
-                'tls_settings' => $protocolSettings['tls'],
-                'up_mbps' => (int) $protocolSettings['bandwidth']['up'],
-                'down_mbps' => (int) $protocolSettings['bandwidth']['down'],
+                // obfs/tls/bandwidth 为 object 型配置，缺省时 cast 层保留 null
+                // 而非补默认对象（API 直写场景可省略），此处全部走 null-safe 读取
+                'server_name' => data_get($protocolSettings, 'tls.server_name'),
+                'tls_settings' => data_get($protocolSettings, 'tls'),
+                'up_mbps' => (int) data_get($protocolSettings, 'bandwidth.up'),
+                'down_mbps' => (int) data_get($protocolSettings, 'bandwidth.down'),
                 ...match ((int) $protocolSettings['version']) {
-                        1 => ['obfs' => $protocolSettings['obfs']['password'] ?? null],
+                        1 => ['obfs' => data_get($protocolSettings, 'obfs.password')],
                         2 => [
-                            'obfs' => $protocolSettings['obfs']['open'] ? $protocolSettings['obfs']['type'] : null,
-                            'obfs-password' => $protocolSettings['obfs']['password'] ?? null,
+                            'obfs' => data_get($protocolSettings, 'obfs.open') ? data_get($protocolSettings, 'obfs.type') : null,
+                            'obfs-password' => data_get($protocolSettings, 'obfs.password'),
                         ],
                         default => [],
                     },
@@ -387,6 +389,11 @@ class ServerService
             $response['custom_routes'] = $node['custom_routes'];
         }
 
+        // 结构化跨内核路由规则：双内核等价编译，节点侧优先级高于 raw custom_routes
+        if (!empty($node['custom_route_rules'])) {
+            $response['custom_route_rules'] = $node['custom_route_rules'];
+        }
+
         if (!empty($node['cert_config'])) {
             $certConfig = $node['cert_config'];
             // Normalize: accept both "mode" and "cert_mode" from the database
@@ -403,6 +410,18 @@ class ServerService
         // from its own log.level). Consumed by xboard-node NodeSpec.KernelLogLevel.
         if (!empty($node['kernel_log_level'])) {
             $response['kernel_log_level'] = $node['kernel_log_level'];
+        }
+
+        // Per-node kernel pin (singbox/xray/auto): only sent when set (empty = node
+        // kernel.type auto-resolves). Consumed by xboard-node NodeSpec.KernelType.
+        if (!empty($node['kernel_type'])) {
+            $response['kernel_type'] = $node['kernel_type'];
+        }
+
+        // PROXY protocol: xray 内核生效（sockopt.acceptProxyProtocol，保留真实源 IP），
+        // sing-box 忽略并告警。Consumed by xboard-node NodeSpec.AcceptProxyProtocol.
+        if (data_get($protocolSettings, 'accept_proxy_protocol')) {
+            $response['accept_proxy_protocol'] = true;
         }
 
         return $response;

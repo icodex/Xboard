@@ -50,20 +50,69 @@ class ServerSave extends FormRequest
         'reality_settings.short_id' => 'nullable|string',
     ];
 
+    // ACME DNS-01 供应商白名单 = xboard-node docs-dns-providers.md 主名（21 家）。
+    // 节点侧另收别名（cf/aliyun/do/gcp…），面板只放行主名，避免双份漂移。
+    private const CERT_DNS_PROVIDERS = 'in:cloudflare,alidns,tencentcloud,route53,godaddy,namecheap,namesilo,digitalocean,linode,hetzner,gandi,porkbun,netlify,azure,googleclouddns,huaweicloud,bunny,duckdns,ovh,vultr,desec';
+
+    private const CERT_CONFIG_RULES = [
+        // cert_mode 为规范键；mode 是历史键，buildNodeConfig 下发前会归一到 cert_mode
+        'cert_config.cert_mode' => 'nullable|string|in:none,dns,http,self,file,content',
+        'cert_config.mode' => 'nullable|string|in:none,dns,http,self,file,content',
+        'cert_config.domain' => 'nullable|string|required_if:cert_config.cert_mode,dns,http|required_if:cert_config.mode,dns,http',
+        'cert_config.email' => 'nullable|email',
+        'cert_config.dns_provider' => 'nullable|string|' . self::CERT_DNS_PROVIDERS
+            . '|required_if:cert_config.cert_mode,dns|required_if:cert_config.mode,dns',
+        'cert_config.dns_env' => 'nullable|array',
+        'cert_config.dns_env.*' => 'string',
+        'cert_config.http_port' => 'nullable|integer|min:1|max:65535',
+        'cert_config.cert_file' => 'nullable|string|required_if:cert_config.cert_mode,file|required_if:cert_config.mode,file',
+        'cert_config.key_file' => 'nullable|string|required_if:cert_config.cert_mode,file|required_if:cert_config.mode,file',
+        'cert_config.cert_content' => 'nullable|string|required_if:cert_config.cert_mode,content|required_if:cert_config.mode,content',
+        'cert_config.key_content' => 'nullable|string|required_if:cert_config.cert_mode,content|required_if:cert_config.mode,content',
+    ];
+
+    // 结构化跨内核路由规则（xboard-node docs-custom-routes.md）：
+    // match 7 条件 + action direct/block/route，双内核等价编译，优先级高于 custom_routes
+    private const CUSTOM_ROUTE_RULE_RULES = [
+        'custom_route_rules' => 'nullable|array',
+        'custom_route_rules.*.name' => 'nullable|string|max:255',
+        'custom_route_rules.*.disabled' => 'nullable|boolean',
+        'custom_route_rules.*.match' => 'nullable|array',
+        'custom_route_rules.*.match.domains' => 'nullable|array',
+        'custom_route_rules.*.match.domains.*' => 'string',
+        'custom_route_rules.*.match.domain_suffixes' => 'nullable|array',
+        'custom_route_rules.*.match.domain_suffixes.*' => 'string',
+        'custom_route_rules.*.match.ip_cidrs' => 'nullable|array',
+        'custom_route_rules.*.match.ip_cidrs.*' => 'string',
+        'custom_route_rules.*.match.ports' => 'nullable|array',
+        'custom_route_rules.*.match.ports.*' => 'string',
+        'custom_route_rules.*.match.networks' => 'nullable|array',
+        'custom_route_rules.*.match.networks.*' => 'string|in:tcp,udp',
+        'custom_route_rules.*.match.source_cidrs' => 'nullable|array',
+        'custom_route_rules.*.match.source_cidrs.*' => 'string',
+        'custom_route_rules.*.match.source_ports' => 'nullable|array',
+        'custom_route_rules.*.match.source_ports.*' => 'string',
+        'custom_route_rules.*.action.type' => 'required|in:direct,block,route',
+        'custom_route_rules.*.action.target' => 'nullable|string|required_if:custom_route_rules.*.action.type,route',
+    ];
+
     private const PROTOCOL_RULES = [
         'shadowsocks' => [
             'cipher' => 'required|string|' . self::SHADOWSOCKS_CIPHERS,
             'obfs' => 'nullable|string',
             'obfs_settings.path' => 'nullable|string',
             'obfs_settings.host' => 'nullable|string',
-            'plugin' => 'nullable|string',
-            'plugin_opts' => 'nullable|string',
+            // SIP003 双内核均无实现：节点 ValidateNodeSpec 对非空 plugin 直接拒收整个
+            // config（节点停留在旧配置）。保存侧禁止非空；空串/null/缺省可过。
+            'plugin' => 'prohibited',
+            'plugin_opts' => 'prohibited',
         ],
         'vmess' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
             'network' => self::NETWORK_RULE,
             'network_settings' => 'nullable|array',
             'rules' => 'nullable|array',
+            'accept_proxy_protocol' => 'nullable|boolean',
         ],
         'trojan' => [
             'tls' => 'nullable|' . self::TLS_LEVEL_RULE,
@@ -71,6 +120,7 @@ class ServerSave extends FormRequest
             'network_settings' => 'nullable|array',
             'server_name' => 'nullable|string',
             'allow_insecure' => 'nullable|boolean',
+            'accept_proxy_protocol' => 'nullable|boolean',
         ],
         'hysteria' => [
             'version' => 'required|integer|in:1,2',
@@ -81,6 +131,7 @@ class ServerSave extends FormRequest
             'bandwidth.up' => 'nullable|integer',
             'bandwidth.down' => 'nullable|integer',
             'hop_interval' => 'integer|nullable', // 仅客户端订阅消费（SingBox/ClashMeta 端口跳跃），不下发节点
+            'accept_proxy_protocol' => 'nullable|boolean',
         ],
         'vless' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
@@ -91,6 +142,7 @@ class ServerSave extends FormRequest
             'encryption.enabled' => 'nullable|boolean',
             'encryption.encryption' => 'nullable|string',
             'encryption.decryption' => 'nullable|string',
+            'accept_proxy_protocol' => 'nullable|boolean',
         ],
         // socks 内核入站无 TLS 选项（sing-box/xray 均不支持），tls=1 保存后实际明文服务，
         // 面板却显示"已加密"——只允许关闭。不用 in:0：其消息 key 会被
@@ -103,6 +155,7 @@ class ServerSave extends FormRequest
         ],
         'http' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
+            'accept_proxy_protocol' => 'nullable|boolean',
         ],
         'tuic' => [
             'version' => 'nullable|integer',
@@ -146,7 +199,11 @@ class ServerSave extends FormRequest
             'custom_outbounds' => 'nullable|array',
             'custom_routes' => 'nullable|array',
             'cert_config' => 'nullable|array',
+            // 每节点内核选择；空 = 不下发，节点侧 kernel.type auto 解析
+            'kernel_type' => 'nullable|string|in:auto,singbox,xray',
             'kernel_log_level' => 'nullable|string|in:trace,debug,info,warn,warning,error,fatal',
+            ...self::CUSTOM_ROUTE_RULE_RULES,
+            ...self::CERT_CONFIG_RULES,
             'rate_time_ranges.*.start' => 'required_with:rate_time_ranges|string|date_format:H:i',
             'rate_time_ranges.*.end' => 'required_with:rate_time_ranges|string|date_format:H:i',
             'rate_time_ranges.*.rate' => 'required_with:rate_time_ranges|numeric|min:0',
@@ -212,6 +269,7 @@ class ServerSave extends FormRequest
             [
                 'tls_settings.server_name' => 'nullable|string',
                 'tls_settings.allow_insecure' => 'nullable|boolean',
+                'tls_settings.alpn' => 'nullable|array',
                 'tls_settings.ech' => 'nullable|array',
             ],
             $this->prefixRules('tls_settings.ech.', self::ECH_RULES),
@@ -225,6 +283,7 @@ class ServerSave extends FormRequest
             [
                 'tls.server_name' => 'nullable|string',
                 'tls.allow_insecure' => 'nullable|boolean',
+                'tls.alpn' => 'nullable|array',
                 'tls.ech' => 'nullable|array',
             ],
             $this->prefixRules('tls.ech.', self::ECH_RULES),
@@ -281,6 +340,16 @@ class ServerSave extends FormRequest
             'protocol_settings.tls_settings.ech.config' => 'ECH配置',
             'protocol_settings.tls_settings.ech.query_server_name' => 'ECH查询域名',
             'protocol_settings.tls_settings.ech.key' => 'ECH密钥',
+            'protocol_settings.tls_settings.alpn' => 'ALPN',
+            'protocol_settings.tls.alpn' => 'ALPN',
+            'protocol_settings.accept_proxy_protocol' => '接受PROXY Protocol',
+            'protocol_settings.plugin' => 'SIP003插件',
+            'protocol_settings.plugin_opts' => 'SIP003插件参数',
+            'kernel_type' => '节点内核',
+            'custom_route_rules' => '结构化路由规则',
+            'cert_config.cert_mode' => '证书模式',
+            'cert_config.dns_provider' => 'DNS供应商',
+            'cert_config.domain' => '证书域名',
             'protocol_settings.tls.ech.enabled' => 'ECH',
             'protocol_settings.tls.ech.config' => 'ECH配置',
             'protocol_settings.tls.ech.query_server_name' => 'ECH查询域名',
@@ -320,6 +389,11 @@ class ServerSave extends FormRequest
 
         if ($this->input('type') === 'socks') {
             $messages['protocol_settings.tls.not_in'] = 'socks 节点不支持 TLS（内核无 TLS 入站，开启后实际明文），请保持关闭';
+        }
+
+        if ($this->input('type') === 'shadowsocks') {
+            $messages['protocol_settings.plugin.prohibited'] = 'SIP003 插件双内核均无实现，节点会拒收该节点配置，请留空';
+            $messages['protocol_settings.plugin_opts.prohibited'] = 'SIP003 插件双内核均无实现，节点会拒收该节点配置，请留空';
         }
 
         return $messages;

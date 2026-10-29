@@ -25,8 +25,10 @@ class ServerObserver
             'route_ids',
             'custom_outbounds',
             'custom_routes',
+            'custom_route_rules',
             'cert_config',
             'kernel_log_level',
+            'kernel_type',
             'host',
             'parent_id',
         ])) {
