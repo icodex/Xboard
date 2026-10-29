@@ -155,8 +155,13 @@ class ManageController extends Controller
         }
 
         try {
-            $deleted = Server::whereIn('id', $ids)->delete();
-            if ($deleted === false) {
+            // 逐模型删除：批量 delete() 不触发模型事件，ServerObserver::deleted
+            // （machine 模式 WS 节点清理通知）会被静默跳过，机器将继续服务已删节点
+            $deleted = 0;
+            Server::whereIn('id', $ids)->get()->each(function (Server $server) use (&$deleted) {
+                $deleted += (int) $server->delete();
+            });
+            if ($deleted === 0) {
                 return $this->fail([500, '批量删除失败']);
             }
             return $this->success(true);
@@ -231,8 +236,9 @@ class ManageController extends Controller
      */
     public function batchUpdate(Request $request)
     {
-        // 与 update() 同理：白名单外的键直接拒绝，避免静默忽略造成假成功
-        $allowed = ['ids', 'show', 'enabled', 'machine_id'];
+        // 与 update() 同理：白名单外的键直接拒绝，避免静默忽略造成假成功；
+        // type 同 update() 属旧前端身份回显，收下并忽略
+        $allowed = ['ids', 'show', 'enabled', 'machine_id', 'type'];
         $unknown = array_diff(array_keys($request->all()), $allowed);
         if ($unknown) {
             return $this->fail([400, '不支持的字段: ' . implode(',', $unknown) . '，请改用 server/manage/save']);
@@ -244,6 +250,7 @@ class ManageController extends Controller
             'show' => 'nullable|integer|in:0,1',
             'enabled' => 'nullable|boolean',
             'machine_id' => 'nullable|integer',
+            'type' => 'nullable|string',
         ]);
 
         $ids = $params['ids'];
