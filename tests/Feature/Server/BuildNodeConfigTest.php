@@ -104,4 +104,64 @@ class BuildNodeConfigTest extends TestCase
         $this->assertSame(['h3'], $config['tls_settings']['alpn']);
         $this->assertSame('hy.example.com', $config['server_name']);
     }
+
+    public function test_hysteria_policy_fields_sent_when_set(): void
+    {
+        $server = Server::create([
+            'name' => 'hy2-policy-node',
+            'type' => Server::TYPE_HYSTERIA,
+            'host' => '127.0.0.1',
+            'port' => 8443,
+            'server_port' => 8443,
+            'rate' => '1',
+            'group_id' => [1],
+            'enabled' => true,
+            'protocol_settings' => [
+                'version' => 2,
+                'sniff' => ['enable' => true, 'timeout' => 5, 'rewriteDomain' => true],
+                'masquerade' => ['type' => 'string', 'string' => ['content' => 'hello', 'statusCode' => 200]],
+                'congestion' => ['type' => 'bbr', 'bbrProfile' => 'high'],
+                'udpIdleTimeout' => 120,
+                'ignoreClientBandwidth' => true,
+                'disableUDP' => true,
+                'bandwidth' => ['up' => 100, 'down' => 100, 'disableLossCompensation' => true],
+            ],
+        ]);
+
+        $config = ServerService::buildNodeConfig($server);
+
+        $this->assertSame(['enable' => true, 'timeout' => 5, 'rewriteDomain' => true, 'tcpPorts' => null, 'udpPorts' => null], $config['sniff']);
+        $this->assertSame('string', $config['masquerade']['type']);
+        $this->assertSame(['type' => 'bbr', 'bbrProfile' => 'high'], $config['congestion']);
+        $this->assertSame(120, $config['udp_idle_timeout']);
+        $this->assertTrue($config['ignore_client_bandwidth']);
+        $this->assertTrue($config['disable_udp']);
+        $this->assertTrue($config['disable_loss_compensation']);
+        // 未设置的策略组不下发
+        $this->assertArrayNotHasKey('quic', $config);
+        $this->assertArrayNotHasKey('resolver', $config);
+    }
+
+    public function test_hysteria_policy_fields_omitted_for_plain_nodes(): void
+    {
+        $server = Server::create([
+            'name' => 'hy2-plain-node',
+            'type' => Server::TYPE_HYSTERIA,
+            'host' => '127.0.0.1',
+            'port' => 8443,
+            'server_port' => 8443,
+            'rate' => '1',
+            'group_id' => [1],
+            'enabled' => true,
+            'protocol_settings' => [
+                'version' => 2,
+            ],
+        ]);
+
+        $config = ServerService::buildNodeConfig($server);
+
+        foreach (['sniff', 'masquerade', 'quic', 'congestion', 'resolver', 'disable_udp', 'udp_idle_timeout', 'ignore_client_bandwidth', 'disable_loss_compensation'] as $key) {
+            $this->assertArrayNotHasKey($key, $config, "{$key} should be omitted");
+        }
+    }
 }

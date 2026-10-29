@@ -285,7 +285,9 @@ class Server extends Model
                 'type' => 'object',
                 'fields' => [
                     'up' => ['type' => 'integer', 'default' => null],
-                    'down' => ['type' => 'integer', 'default' => null]
+                    'down' => ['type' => 'integer', 'default' => null],
+                    // hysteria server.yaml bandwidth.disableLossCompensation
+                    'disableLossCompensation' => ['type' => 'boolean', 'default' => false],
                 ]
             ],
             'obfs' => [
@@ -298,6 +300,108 @@ class Server extends Model
             ],
             'tls' => self::TLS_CONFIGURATION,
             'hop_interval' => ['type' => 'integer', 'default' => null],
+            // 以下为 hysteria fork server.yaml 能力面板化（仅 hysteria 后端消费，
+            // 双内核后端 JSON 容错忽略未知键）。字段语义与 server.yaml 一一对应。
+            'sniff' => [
+                'type' => 'object',
+                'fields' => [
+                    'enable' => ['type' => 'boolean', 'default' => false],
+                    'timeout' => ['type' => 'integer', 'default' => null],
+                    'rewriteDomain' => ['type' => 'boolean', 'default' => false],
+                    'tcpPorts' => ['type' => 'string', 'default' => null],
+                    'udpPorts' => ['type' => 'string', 'default' => null],
+                ]
+            ],
+            'masquerade' => [
+                'type' => 'object',
+                'fields' => [
+                    'type' => ['type' => 'string', 'default' => null],
+                    'listenHTTP' => ['type' => 'string', 'default' => null],
+                    'listenHTTPS' => ['type' => 'string', 'default' => null],
+                    'forceHTTPS' => ['type' => 'boolean', 'default' => false],
+                    'file' => [
+                        'type' => 'object',
+                        'fields' => ['dir' => ['type' => 'string', 'default' => null]]
+                    ],
+                    'proxy' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'url' => ['type' => 'string', 'default' => null],
+                            'rewriteHost' => ['type' => 'boolean', 'default' => false],
+                            'xForwarded' => ['type' => 'boolean', 'default' => false],
+                            'insecure' => ['type' => 'boolean', 'default' => false],
+                        ]
+                    ],
+                    'string' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'content' => ['type' => 'string', 'default' => null],
+                            'statusCode' => ['type' => 'integer', 'default' => null],
+                        ]
+                    ],
+                ]
+            ],
+            'quic' => [
+                'type' => 'object',
+                'fields' => [
+                    'initStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
+                    'maxStreamReceiveWindow' => ['type' => 'integer', 'default' => null],
+                    'initConnReceiveWindow' => ['type' => 'integer', 'default' => null],
+                    'maxConnReceiveWindow' => ['type' => 'integer', 'default' => null],
+                    'maxIdleTimeout' => ['type' => 'integer', 'default' => null],
+                    'maxIncomingStreams' => ['type' => 'integer', 'default' => null],
+                    'disablePathMTUDiscovery' => ['type' => 'boolean', 'default' => false],
+                    'disableStatelessReset' => ['type' => 'boolean', 'default' => false],
+                ]
+            ],
+            'congestion' => [
+                'type' => 'object',
+                'fields' => [
+                    'type' => ['type' => 'string', 'default' => null],
+                    'bbrProfile' => ['type' => 'string', 'default' => null],
+                ]
+            ],
+            'resolver' => [
+                'type' => 'object',
+                'fields' => [
+                    'type' => ['type' => 'string', 'default' => null],
+                    'tcp' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'addr' => ['type' => 'string', 'default' => null],
+                            'timeout' => ['type' => 'integer', 'default' => null],
+                        ]
+                    ],
+                    'udp' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'addr' => ['type' => 'string', 'default' => null],
+                            'timeout' => ['type' => 'integer', 'default' => null],
+                        ]
+                    ],
+                    'tls' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'addr' => ['type' => 'string', 'default' => null],
+                            'timeout' => ['type' => 'integer', 'default' => null],
+                            'sni' => ['type' => 'string', 'default' => null],
+                            'insecure' => ['type' => 'boolean', 'default' => false],
+                        ]
+                    ],
+                    'https' => [
+                        'type' => 'object',
+                        'fields' => [
+                            'addr' => ['type' => 'string', 'default' => null],
+                            'timeout' => ['type' => 'integer', 'default' => null],
+                            'sni' => ['type' => 'string', 'default' => null],
+                            'insecure' => ['type' => 'boolean', 'default' => false],
+                        ]
+                    ],
+                ]
+            ],
+            'disableUDP' => ['type' => 'boolean', 'default' => false],
+            'udpIdleTimeout' => ['type' => 'integer', 'default' => null],
+            'ignoreClientBandwidth' => ['type' => 'boolean', 'default' => false],
             ...self::ACCEPT_PROXY_PROTOCOL
         ],
         self::TYPE_TUIC => [

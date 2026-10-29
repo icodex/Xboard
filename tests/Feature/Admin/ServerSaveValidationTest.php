@@ -289,4 +289,49 @@ class ServerSaveValidationTest extends TestCase
             'tls' => ['server_name' => 'a.example.com', 'alpn' => ['h3']],
         ], 'hysteria')->fails());
     }
+
+    public function test_hysteria_policy_fields_whitelists_and_ranges(): void
+    {
+        // Full valid policy set mirrors hysteria server.yaml semantics.
+        $this->assertFalse($this->validate([
+            'version' => 2,
+            'sniff' => ['enable' => true, 'timeout' => 5, 'rewriteDomain' => true, 'tcpPorts' => '80,443', 'udpPorts' => 'all'],
+            'masquerade' => [
+                'type' => 'proxy',
+                'proxy' => ['url' => 'https://example.com', 'rewriteHost' => true, 'xForwarded' => false, 'insecure' => false],
+            ],
+            'quic' => [
+                'initStreamReceiveWindow' => 8388608,
+                'maxIdleTimeout' => 30,
+                'maxIncomingStreams' => 1024,
+                'disablePathMTUDiscovery' => true,
+            ],
+            'congestion' => ['type' => 'bbr', 'bbrProfile' => 'high'],
+            'resolver' => ['type' => 'https', 'https' => ['addr' => '1.1.1.1:443', 'timeout' => 10, 'sni' => 'cloudflare-dns.com', 'insecure' => false]],
+            'disableUDP' => false,
+            'udpIdleTimeout' => 60,
+            'ignoreClientBandwidth' => true,
+            'bandwidth' => ['up' => 100, 'down' => 100, 'disableLossCompensation' => true],
+        ], 'hysteria')->fails());
+
+        $errors = $this->validate(['version' => 2, 'masquerade' => ['type' => 'websocket']], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.masquerade.type'));
+
+        // 233 is hysteria's reserved control status code
+        $errors = $this->validate(['version' => 2, 'masquerade' => ['type' => 'string', 'string' => ['statusCode' => 233]]], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.masquerade.string.statusCode'));
+
+        // QUIC window floor = 16384 (server.yaml Config.fill)
+        $errors = $this->validate(['version' => 2, 'quic' => ['initStreamReceiveWindow' => 1024]], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.quic.initStreamReceiveWindow'));
+
+        $errors = $this->validate(['version' => 2, 'congestion' => ['type' => 'cubic']], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.congestion.type'));
+
+        $errors = $this->validate(['version' => 2, 'udpIdleTimeout' => 601], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.udpIdleTimeout'));
+
+        $errors = $this->validate(['version' => 2, 'resolver' => ['type' => 'dot']], 'hysteria')->errors();
+        $this->assertTrue($errors->has('protocol_settings.resolver.type'));
+    }
 }

@@ -424,6 +424,29 @@ class ServerService
             $response['accept_proxy_protocol'] = true;
         }
 
+        // hysteria fork server.yaml 能力面板化（sniff/masquerade/quic/congestion/resolver
+        // + 开关类）。仅 hysteria 后端消费；双内核后端 JSON 容错忽略未知键。非空才下发。
+        if ($nodeType === 'hysteria') {
+            foreach (['sniff', 'masquerade', 'quic', 'congestion', 'resolver'] as $policyKey) {
+                $policyValue = data_get($protocolSettings, $policyKey);
+                if (!empty($policyValue)) {
+                    $response[$policyKey] = $policyValue;
+                }
+            }
+            if (data_get($protocolSettings, 'disableUDP')) {
+                $response['disable_udp'] = true;
+            }
+            if ($udpIdleTimeout = (int) data_get($protocolSettings, 'udpIdleTimeout')) {
+                $response['udp_idle_timeout'] = $udpIdleTimeout;
+            }
+            if (data_get($protocolSettings, 'ignoreClientBandwidth')) {
+                $response['ignore_client_bandwidth'] = true;
+            }
+            if (data_get($protocolSettings, 'bandwidth.disableLossCompensation')) {
+                $response['disable_loss_compensation'] = true;
+            }
+        }
+
         return $response;
     }
 
