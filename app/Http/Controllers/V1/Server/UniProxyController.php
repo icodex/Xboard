@@ -93,6 +93,24 @@ class UniProxyController extends Controller
         return response()->json(['data' => true]);
     }
 
+    /**
+     * REST 兜底在线连接数上报：{uid: 活跃连接数}。
+     * hysteria fork 的 ReportOnlineLoop 在 WS 断开期间轮询此端点
+     * （此前 v1 无此路由恒 404，REST 期连接数静默丢失）；v2 走 report.online。
+     */
+    public function online(Request $request): JsonResponse
+    {
+        $node = $this->getNodeInfo($request);
+        $data = json_decode($request->getContent(), true);
+        if (!is_array($data)) {
+            return response()->json(['error' => 'Invalid online data'], 400);
+        }
+
+        ServerService::processOnline($node, $data);
+
+        return response()->json(['data' => true]);
+    }
+
     public function status(Request $request): JsonResponse
     {
         $node = $this->getNodeInfo($request);
