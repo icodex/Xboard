@@ -250,6 +250,13 @@ class ServerService
         );
     }
 
+    // QUIC 内核（hysteria1/tuic）对 alpn=null 与键缺省处理不同：键存在但值为 null
+    // 会跳过内核的 h3 兜底，导致握手无 ALPN。下发前剥掉 null 值键，等价于缺省。
+    private static function cleanTlsSettings($tls): mixed
+    {
+        return is_array($tls) ? array_filter($tls, fn ($v) => $v !== null) : $tls;
+    }
+
     public static function buildNodeConfig(Server $node): array
     {
         $nodeType = $node->type;
@@ -321,7 +328,7 @@ class ServerService
                 // obfs/tls/bandwidth 为 object 型配置，缺省时 cast 层保留 null
                 // 而非补默认对象（API 直写场景可省略），此处全部走 null-safe 读取
                 'server_name' => data_get($protocolSettings, 'tls.server_name'),
-                'tls_settings' => data_get($protocolSettings, 'tls'),
+                'tls_settings' => self::cleanTlsSettings(data_get($protocolSettings, 'tls')),
                 'up_mbps' => (int) data_get($protocolSettings, 'bandwidth.up'),
                 'down_mbps' => (int) data_get($protocolSettings, 'bandwidth.down'),
                 ...match ((int) $protocolSettings['version']) {
@@ -340,7 +347,7 @@ class ServerService
                 // tls 为 object 型配置，缺省时 cast 层保留 null，走 null-safe 读取
                 'server_name' => data_get($protocolSettings, 'tls.server_name'),
                 'congestion_control' => data_get($protocolSettings, 'congestion_control'),
-                'tls_settings' => data_get($protocolSettings, 'tls'),
+                'tls_settings' => self::cleanTlsSettings(data_get($protocolSettings, 'tls')),
             ],
             'anytls' => [
                 ...$baseConfig,
