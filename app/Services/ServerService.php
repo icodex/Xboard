@@ -76,6 +76,33 @@ class ServerService
             }
             $server->password = $server->generateServerPassword($user);
             $server->rate = $server->getCurrentRate();
+            $ps = $server->protocol_settings;
+            if (is_array($ps)) {
+                // trojan 存的是扁平 schema（server_name/allow_insecure 顶层，tls_settings
+                // 容器为空串），而所有转换器读 tls_settings.*——补一份嵌套镜像兼容两种形态
+                if ($server->type === 'trojan') {
+                    $ps['tls_settings'] = array_merge(
+                        ['server_name' => $ps['server_name'] ?? null, 'allow_insecure' => false],
+                        is_array($ps['tls_settings'] ?? null) ? $ps['tls_settings'] : []
+                    );
+                }
+                // 自签证书对客户端等同 allow_insecure：全部订阅转换器都从
+                // protocol_settings 的 allow_insecure 读取，源头置真一次全端生效
+                // （buildNodeConfig 读模型原始值，节点下发不受影响）
+                $certMode = data_get($server->cert_config, 'cert_mode') ?? data_get($server->cert_config, 'mode');
+                if ($certMode === 'self') {
+                    foreach (['tls_settings', 'reality_settings', 'tls'] as $container) {
+                        if (is_array($ps[$container] ?? null)) {
+                            $ps[$container]['allow_insecure'] = true;
+                        }
+                    }
+                    // trojan 扁平形态的顶层键
+                    if (array_key_exists('allow_insecure', $ps)) {
+                        $ps['allow_insecure'] = true;
+                    }
+                }
+                $server->protocol_settings = $ps;
+            }
             return $server;
         })->toArray();
 
@@ -298,7 +325,8 @@ class ServerService
             'trojan' => [
                 ...$baseConfig,
                 'host' => $host,
-                'server_name' => data_get($protocolSettings, 'tls_settings.server_name'),
+                // trojan 存扁平 schema，server_name 在顶层；tls_settings 容器可能为空串
+                'server_name' => data_get($protocolSettings, 'tls_settings.server_name') ?? data_get($protocolSettings, 'server_name'),
                 'multiplex' => data_get($protocolSettings, 'multiplex'),
                 'tls' => (int) $protocolSettings['tls'],
                 'tls_settings' => match ((int) $protocolSettings['tls']) {

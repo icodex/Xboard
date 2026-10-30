@@ -21,6 +21,8 @@ class General extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_TUIC,
         Server::TYPE_HTTP,
+        Server::TYPE_NAIVE,
+        // TYPE_MIERU excluded: no standard URI scheme, clash/sing-box formats only
     ];
 
     protected $protocolRequirements = [
@@ -45,6 +47,7 @@ class General extends AbstractProtocol
                 Server::TYPE_SOCKS => self::buildSocks($item['password'], $item),
                 Server::TYPE_TUIC => self::buildTuic($item['password'], $item),
                 Server::TYPE_HTTP => self::buildHttp($item['password'], $item),
+                Server::TYPE_NAIVE => self::buildNaive($item['password'], $item),
                 default => '',
             };
         }
@@ -474,6 +477,29 @@ class General extends AbstractProtocol
         }
 
         $uri = "http://{$credentials}@{$addr}:{$server['port']}";
+        if (!empty($params)) {
+            $uri .= '?' . http_build_query($params);
+        }
+        $uri .= "#{$name}\r\n";
+        return $uri;
+    }
+
+    public static function buildNaive($password, $server)
+    {
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $name = rawurlencode($server['name']);
+        $addr = Helper::wrapIPv6($server['host']);
+
+        $params = [];
+        if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
+            $params['sni'] = $serverName;
+        }
+        if (data_get($protocol_settings, 'tls_settings.allow_insecure')) {
+            $params['insecure'] = '1';
+        }
+
+        // naive+https://user:pass@host:port?sni=xxx&insecure=1#name（NekoBox / v2rayN 6.62+ 可解析）
+        $uri = "naive+https://{$password}:{$password}@{$addr}:{$server['port']}";
         if (!empty($params)) {
             $uri .= '?' . http_build_query($params);
         }
