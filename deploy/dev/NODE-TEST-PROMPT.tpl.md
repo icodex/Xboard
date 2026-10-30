@@ -5,6 +5,7 @@
 - 面板：`http://127.0.0.1:7001`，server_token：`xboard-node-test-token`
 - 测试用户 uuid：`__UUID__`（ UniProxy user 接口返回同值）
 - 管理后台：`http://127.0.0.1:7001/ac821707`（admin@xboard.test / `xboard123`），可网页确认节点在线/流量
+- 订阅（客户端导入/对照用）：`http://127.0.0.1:7001/api/v1/client/subscribe?token=16d1317da074da3922de589a4ebc6e16`（clash-verge UA 出全 31 节点；v2rayN/General UA 缺 naive/mieru/hysteria2——客户端格式覆盖缺口，不影响节点直连测试）
 - 面板日志：`sudo -n docker logs -f xboard-dev-xboard-1`
 - 下发接口：`GET /api/v1/server/UniProxy/config?token={{SECRET_p2lg4elz}}&node_id=<id>&node_type=<type>`
 - 节点端口规则：**port = 10000 + node_id**（10001~10031），面板监听 IP 0.0.0.0

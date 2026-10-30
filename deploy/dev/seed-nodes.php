@@ -11,7 +11,7 @@ $reality = [
     'public_key'  => 'YrYngPHn0t67mvgLXFmqbKqKzZKe_UXlt2dCoUpq2wc',
 ];
 $certSelf = ['cert_config' => ['cert_mode' => 'self', 'domain' => 'test.local']];
-$host = '192.168.55.168';
+$host = '127.0.0.1';
 
 $nodes = [
     // type, name, server_port, protocol_settings, extra

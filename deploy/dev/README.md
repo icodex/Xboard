@@ -24,15 +24,9 @@ sudo -n docker compose up -d --build   # 首次构建 xboard-test 镜像（工�
 
 ## 节点联调
 
-模板 `/Users/icodex/Git/xray/Xboard/.docker/xboard-node-local.yml`，改 `node_id` / `node_type` / `kernel.type` 三处，每轮一个节点：
+31 节点一次性起法（multi-node 模式，kernel auto）、逐节点客户端连通判据：`NODE-TEST-PROMPT.tpl.md`。单节点模板 `xboard-node-local.yml` 已删，单轮联调配置参考 Xboard-node 仓 `config.yml.example`。
 
-```bash
-cd /Users/icodex/Git/xray/Xboard-node
-go run ./cmd/xboard-node -c /Users/icodex/Git/xray/Xboard/.docker/xboard-node-local.yml
-curl http://127.0.0.1:65530/healthz
-```
-
-31 节点矩阵与内核预期：`.docker/NODE-TEST-HANDOFF.md`。
+31 节点矩阵与内核预期：`NODE-TEST-PROMPT.tpl.md` 矩阵表。
 
 ## 已知坑
 
