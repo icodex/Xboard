@@ -623,6 +623,8 @@ class ClashMeta extends AbstractProtocol
                 }
                 $array['fast-open'] = true;
                 $array['disable_mtu_discovery'] = true;
+                // hysteria1 走 QUIC，客户端必须带 alpn（tuic 分支已有），缺省 h3
+                $array['alpn'] = data_get($protocol_settings, 'tls.alpn') ?: ['h3'];
                 break;
             case 2:
                 $array['type'] = 'hysteria2';
@@ -717,7 +719,6 @@ class ClashMeta extends AbstractProtocol
 
     public static function buildSocks5($password, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
         $array = [];
         $array['name'] = $server['name'];
         $array['type'] = 'socks5';
@@ -728,11 +729,7 @@ class ClashMeta extends AbstractProtocol
         $array['username'] = $password;
         $array['password'] = $password;
 
-        // TLS 配置
-        if (data_get($protocol_settings, 'tls')) {
-            $array['tls'] = true;
-            $array['skip-cert-verify'] = (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false);
-        }
+        // socks 内核不支持 TLS（面板契约 tls 恒 0），存量行存的 tls=1 不下发，避免客户端真去握手被 reset
 
         return $array;
     }
@@ -808,7 +805,12 @@ class ClashMeta extends AbstractProtocol
         if ($utls = data_get($protocol_settings, 'utls')) {
             if (data_get($utls, 'enabled')) {
                 $array['client-fingerprint'] = Helper::getTlsFingerprint($utls, $server['_fp_seed'] ?? null);
+                return;
             }
+        }
+        // Reality 客户端必须走 uTLS，mihomo 缺 client-fingerprint 直接拒绝，给缺省指纹
+        if ((int) data_get($protocol_settings, 'tls') === 2) {
+            $array['client-fingerprint'] = 'chrome';
         }
     }
 
