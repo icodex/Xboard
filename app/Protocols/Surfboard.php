@@ -16,6 +16,18 @@ class Surfboard extends AbstractProtocol
         Server::TYPE_TROJAN,
         Server::TYPE_ANYTLS,
     ];
+
+    // Surfboard vmess 仅支持 ws 传输（builder 仅输出 ws 参数），trojan 无传输参数
+    protected $protocolRequirements = [
+        'surfboard.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'surfboard.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp'],
+            'strict' => true,
+        ],
+    ];
     const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.surfboard.conf';
     const DEFAULT_TEMPLATE_FILE = 'resources/rules/default.surfboard.conf';
 

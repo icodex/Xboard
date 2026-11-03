@@ -19,6 +19,50 @@ class QuantumultX extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
     ];
+
+    // QX 原生仅支持 obfs=ws/wss/http/over-tls 传输；applyTransportSettings() 对其余
+    // network 无 case 会静默丢弃 transport 生成损坏配置，故严格白名单收窄
+    protected $protocolRequirements = [
+        'quantumult%20x.vless.base_version' => '1.5.0', // vless 为 1.5.0(821+) 新增（官方发布）
+        'quantumult-x.vless.base_version' => '1.5.0',
+        'quantumultx.vless.base_version' => '1.5.0',
+        'quantumult%20x.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumult%20x.vless.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumult%20x.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumult-x.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumult-x.vless.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumult-x.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumultx.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumultx.vless.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'quantumultx.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+    ];
     const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.quantumultx.conf';
     const DEFAULT_TEMPLATE_FILE = 'resources/rules/default.quantumultx.conf';
 

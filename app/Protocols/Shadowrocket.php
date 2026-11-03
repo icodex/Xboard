@@ -21,10 +21,26 @@ class Shadowrocket extends AbstractProtocol
     ];
 
     protected $protocolRequirements = [
+        // Strict network whitelists: build*() has no case for other transports (e.g.
+        // splithttp), so anything outside these lists would be emitted as broken entries
+        '*' => [
+            'vmess' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'httpupgrade', 'h2', 'http', 'xhttp'],
+                    'strict' => true,
+                ],
+            ],
+            'vless' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'kcp', 'h2', 'http', 'httpupgrade', 'xhttp'],
+                    'strict' => true,
+                ],
+            ],
+        ],
         'shadowrocket.hysteria.protocol_settings.version' => [2 => '1993'],
         'shadowrocket.anytls.base_version' => '2592',
         'shadowrocket.trojan.protocol_settings.network' => [
-            'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'httpupgrade'],
+            'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp'],
             'strict' => true,
         ],
     ];
@@ -141,6 +157,7 @@ class Shadowrocket extends AbstractProtocol
                     $config['obfsParam'] = $host;
                 }
             break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），按 h2 下发
             case 'h2':
                 $config['obfs'] = "h2";
                 if ($path = data_get($protocol_settings, 'network_settings.path')) {
@@ -244,6 +261,7 @@ class Shadowrocket extends AbstractProtocol
                 }
                 $config['type'] = data_get($protocol_settings, 'network_settings.header.type', 'none');
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），按 h2 下发
             case 'h2':
                 $config['obfs'] = "h2";
                 if ($path = data_get($protocol_settings, 'network_settings.path')) {
@@ -314,6 +332,7 @@ class Shadowrocket extends AbstractProtocol
                 $path = data_get($protocol_settings, 'network_settings.path');
                 $params['plugin'] = "obfs-local;obfs=websocket;obfs-host={$host};obfs-uri={$path}";
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2，按 h2 下发
             case 'h2':
                 $params['obfs'] = 'h2';
                 if ($path = data_get($protocol_settings, 'network_settings.path'))

@@ -29,14 +29,27 @@ class Stash extends AbstractProtocol
     protected $protocolRequirements = [
         // Global rules applied regardless of client version (features Stash never supports)
         '*' => [
+            // Strict network whitelists: build*() has no case for other transports, so
+            // anything outside these lists would be emitted as broken tcp-fallback config
             'trojan' => [
                 'protocol_settings.tls' => [
                     '2' => '9999.0.0',  // Trojan Reality not supported in Stash
                 ],
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc'],  // httpupgrade also unsupported per stash.wiki
+                    'strict' => true,
+                ],
             ],
             'vmess' => [
                 'protocol_settings.network' => [
-                    'httpupgrade' => '9999.0.0',  // httpupgrade not supported in Stash
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http'],  // httpupgrade not supported in Stash
+                    'strict' => true,
+                ],
+            ],
+            'vless' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http', 'xhttp'],  // httpupgrade not supported per stash.wiki
+                    'strict' => true,
                 ],
             ],
         ],
@@ -109,7 +122,7 @@ class Stash extends AbstractProtocol
                 array_push($proxies, $item['name']);
             }
             if ($item['type'] === Server::TYPE_VLESS
-                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http'])
+                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'h2', 'http', 'xhttp'])
             ) {
                 array_push($proxy, $this->buildVless($item['password'], $item));
                 array_push($proxies, $item['name']);
@@ -302,6 +315,7 @@ class Stash extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），客户端按 h2 下发
             case 'h2':
                 $array['network'] = 'h2';
                 $array['tls'] = true;
@@ -387,6 +401,7 @@ class Stash extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2，客户端按 h2 下发
             case 'h2':
                 $array['network'] = 'h2';
                 $array['h2-opts'] = [];

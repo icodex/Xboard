@@ -148,8 +148,17 @@ abstract class AbstractProtocol
      */
     private function checkRequirements(array $requirements, array $server): bool
     {
+        // base_version gates the whole protocol type on the client version; an
+        // unparseable version is treated as below the floor (same as feature rules)
+        if (isset($requirements['base_version'])) {
+            if (blank($this->clientVersion)
+                || version_compare($this->clientVersion, $requirements['base_version'], '<')) {
+                return false;
+            }
+        }
+
         foreach ($requirements as $field => $filterRule) {
-            if (in_array($field, ['base_version', 'incompatible'])) {
+            if (in_array($field, ['incompatible'])) {
                 continue;
             }
 

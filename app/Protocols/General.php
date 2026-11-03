@@ -26,6 +26,28 @@ class General extends AbstractProtocol
     ];
 
     protected $protocolRequirements = [
+        // Strict network whitelists: build*() has no case for other transports (e.g.
+        // splithttp), so anything outside these lists would be emitted as broken URIs
+        '*' => [
+            'vmess' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp'],
+                    'strict' => true,
+                ],
+            ],
+            'vless' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp'],
+                    'strict' => true,
+                ],
+            ],
+            'trojan' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp'],
+                    'strict' => true,
+                ],
+            ],
+        ],
         'v2rayng.hysteria.protocol_settings.version' => [2 => '1.9.5'],
         'v2rayn.hysteria.protocol_settings.version' => [2 => '6.31'],
     ];
@@ -139,6 +161,7 @@ class General extends AbstractProtocol
                 if ($path = data_get($protocol_settings, 'network_settings.serviceName'))
                     $config['path'] = $path;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），URI 按 h2 下发
             case 'h2':
                 $config['net'] = 'h2';
                 $config['type'] = 'h2';
@@ -228,6 +251,7 @@ class General extends AbstractProtocol
                 if ($path = data_get($protocol_settings, 'network_settings.serviceName'))
                     $config['serviceName'] = $path;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2，URI 按 h2 下发
             case 'h2':
                 $config['type'] = 'http';
                 if ($path = data_get($protocol_settings, 'network_settings.path'))
@@ -301,6 +325,7 @@ class General extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['serviceName'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2，URI 按 h2 下发
             case 'h2':
                 $array['type'] = 'http';
                 if ($path = data_get($protocol_settings, 'network_settings.path'))

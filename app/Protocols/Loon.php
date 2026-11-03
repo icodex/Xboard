@@ -21,6 +21,19 @@ class Loon extends AbstractProtocol
     protected $protocolRequirements = [
         'loon.hysteria.protocol_settings.version' => [2 => '637'],
         'loon.trojan.protocol_settings.tls' => [0 => '3.2.1', 1 => '3.2.1',2 => '999.9.9'],
+        // 官方 manual 仅记载 transport=tcp/ws/http，grpc/h2/httpupgrade 无文档依据
+        'loon.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'loon.vless.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'loon.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
     ];
 
     public function handle()

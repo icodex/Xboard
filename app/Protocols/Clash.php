@@ -20,6 +20,25 @@ class Clash extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
     ];
+
+    // Legacy Clash (premium)：vmess = basic/http-opts/h2/grpc（clash.wiki），trojan = basic/ws/grpc
+    protected $protocolRequirements = [
+        '*' => [
+            'vmess' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http'],
+                    'strict' => true,
+                ],
+            ],
+            'trojan' => [
+                'protocol_settings.network' => [
+                    'whitelist' => ['tcp', 'ws', 'grpc'],
+                    'strict' => true,
+                ],
+            ],
+        ],
+    ];
+
     public function handle()
     {
         $servers = $this->servers;
@@ -216,6 +235,16 @@ class Clash extends AbstractProtocol
                     $array['ws-opts']['path'] = $path;
                 if ($host = data_get($protocol_settings, 'network_settings.headers.Host'))
                     $array['ws-opts']['headers'] = ['Host' => $host];
+                break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），客户端按 h2 下发
+            case 'h2':
+                $array['network'] = 'h2';
+                $array['tls'] = true;
+                $array['h2-opts'] = [];
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $array['h2-opts']['path'] = $path;
+                if ($host = data_get($protocol_settings, 'network_settings.host'))
+                    $array['h2-opts']['host'] = is_array($host) ? $host : [$host];
                 break;
             case 'grpc':
                 $array['network'] = 'grpc';

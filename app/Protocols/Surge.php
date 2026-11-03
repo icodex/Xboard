@@ -24,6 +24,15 @@ class Surge extends AbstractProtocol
     ];
     protected $protocolRequirements = [
         'surge.hysteria.protocol_settings.version' => [2 => '2398'],
+        // Surge vmess 仅 ws（manual policies/vmess），trojan 支持 ws（manual policies/trojan: ws/ws-path/ws-headers）
+        'surge.vmess.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
+        'surge.trojan.protocol_settings.network' => [
+            'whitelist' => ['tcp', 'ws'],
+            'strict' => true,
+        ],
     ];
 
     public function handle()
@@ -201,6 +210,15 @@ class Surge extends AbstractProtocol
         ];
         if (data_get($protocol_settings, 'tls_settings.allow_insecure', false)) {
             $config[] = 'skip-cert-verify=true';
+        }
+        if (data_get($protocol_settings, 'network') === 'ws') {
+            $config[] = 'ws=true';
+            if ($path = data_get($protocol_settings, 'network_settings.path')) {
+                $config[] = "ws-path={$path}";
+            }
+            if ($host = data_get($protocol_settings, 'network_settings.headers.Host')) {
+                $config[] = "ws-headers=Host:{$host}";
+            }
         }
         $config = array_filter($config);
         $uri = implode(',', $config);

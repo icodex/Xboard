@@ -56,6 +56,7 @@ class ClashMeta extends AbstractProtocol
                 'tcp' => '0.0.0',
                 'ws' => '0.0.0',
                 'grpc' => '0.0.0',
+                'http' => '0.0.0',
                 'httpupgrade' => '0.0.0',
             ],
             'strict' => true,
@@ -387,6 +388,7 @@ class ClashMeta extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），客户端按 h2 下发
             case 'h2':
                 $array['network'] = 'h2';
                 $array['h2-opts'] = [];
@@ -482,6 +484,7 @@ class ClashMeta extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），客户端按 h2 下发
             case 'h2':
                 $array['network'] = 'h2';
                 $array['h2-opts'] = [];
@@ -571,6 +574,7 @@ class ClashMeta extends AbstractProtocol
                 if ($serviceName = data_get($protocol_settings, 'network_settings.serviceName'))
                     $array['grpc-opts']['grpc-service-name'] = $serviceName;
                 break;
+            case 'http': // 面板 http 传输 = HTTP/2（节点端 sing-box 映射 h2），客户端按 h2 下发
             case 'h2':
                 $array['network'] = 'h2';
                 $array['h2-opts'] = [];
