@@ -395,6 +395,28 @@ class Stash extends AbstractProtocol
                 if ($host = data_get($protocol_settings, 'network_settings.host'))
                     $array['h2-opts']['host'] = is_array($host) ? $host : [$host];
                 break;
+            case 'httpupgrade':
+                $array['network'] = 'ws';
+                $array['ws-opts'] = ['v2ray-http-upgrade' => true];
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $array['ws-opts']['path'] = $path;
+                if ($host = data_get($protocol_settings, 'network_settings.host'))
+                    $array['ws-opts']['headers'] = ['Host' => $host];
+                break;
+            case 'xhttp':
+                $array['network'] = 'xhttp';
+                $xhttpOpts = [];
+                if ($path = data_get($protocol_settings, 'network_settings.path'))
+                    $xhttpOpts['path'] = $path;
+                if ($host = data_get($protocol_settings, 'network_settings.host'))
+                    $xhttpOpts['host'] = $host;
+                if ($mode = data_get($protocol_settings, 'network_settings.mode'))
+                    $xhttpOpts['mode'] = $mode;
+                if (!empty($xhttpOpts))
+                    $array['xhttp-opts'] = $xhttpOpts;
+                break;
+            default:
+                break;
         }
 
         self::appendMultiplex($array, $protocol_settings);
