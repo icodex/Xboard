@@ -160,6 +160,61 @@ class ServerSaveValidationTest extends TestCase
         $this->assertFalse($this->validate(['cipher' => 'aes-256-gcm', 'plugin' => null], 'shadowsocks')->fails());
     }
 
+    public function test_shadowsocks_obfs_prohibited(): void
+    {
+        // ss simple-obfs: no kernel implements it server-side and the node is
+        // never told — an obfs admin setting silently broke obfs clients.
+        // Same prohibition contract as plugin above.
+        $errors = $this->validate(['cipher' => 'aes-256-gcm', 'obfs' => 'http'], 'shadowsocks')->errors();
+        $this->assertTrue($errors->has('protocol_settings.obfs'));
+
+        $errors = $this->validate(['cipher' => 'aes-256-gcm', 'obfs_settings' => ['path' => '/obfs']], 'shadowsocks')->errors();
+        $this->assertTrue($errors->has('protocol_settings.obfs_settings.path'));
+
+        // Omitted / null keep passing for legacy payloads.
+        $this->assertFalse($this->validate(['cipher' => 'aes-256-gcm'], 'shadowsocks')->fails());
+        $this->assertFalse($this->validate(['cipher' => 'aes-256-gcm', 'obfs' => null], 'shadowsocks')->fails());
+    }
+
+    public function test_tuic_udp_relay_mode_enum(): void
+    {
+        foreach (['native', 'quic'] as $mode) {
+            $this->assertFalse(
+                $this->validate(['version' => 1, 'udp_relay_mode' => $mode], 'tuic')->fails(),
+                "udp_relay_mode={$mode} should pass"
+            );
+        }
+
+        foreach (['udp', 'native2', 1] as $mode) {
+            $errors = $this->validate(['version' => 1, 'udp_relay_mode' => $mode], 'tuic')->errors();
+            $this->assertTrue($errors->has('protocol_settings.udp_relay_mode'), "udp_relay_mode={$mode} should be rejected");
+        }
+    }
+
+    public function test_multiplex_subkey_shapes(): void
+    {
+        $valid = [
+            'tls' => 0,
+            'network' => 'tcp',
+            'multiplex' => [
+                'enabled' => true,
+                'protocol' => 'yamux',
+                'max_connections' => 4,
+                'min_streams' => 4,
+                'max_streams' => 0,
+                'padding' => false,
+            ],
+        ];
+        $this->assertFalse($this->validate($valid, 'vmess')->fails());
+
+        foreach ([['protocol' => 'quic'], ['max_connections' => -1], ['min_streams' => 'many'], ['max_streams' => -3]] as $bad) {
+            $payload = $valid;
+            $payload['multiplex'] = array_merge($payload['multiplex'], $bad);
+            $errors = $this->validate($payload, 'vmess')->errors();
+            $this->assertNotEmpty($errors, 'multiplex payload should be rejected: ' . json_encode($bad));
+        }
+    }
+
     public function test_cert_config_mode_whitelist(): void
     {
         // dns/http/file/content 各有 required_if 配套字段，走专属用例；此处只测无附加要求的模式

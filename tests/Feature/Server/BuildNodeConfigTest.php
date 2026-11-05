@@ -142,6 +142,33 @@ class BuildNodeConfigTest extends TestCase
         $this->assertArrayNotHasKey('resolver', $config);
     }
 
+    public function test_tuic_udp_relay_mode_not_sent_to_node(): void
+    {
+        // udp_relay_mode 是订阅/客户端域参数（TUICOutboundOptions）：客户端渲染器
+        // 消费，sing-box 入站无此选项，节点配置不下发。
+        $server = Server::create([
+            'name' => 'tuic-relay-node',
+            'type' => Server::TYPE_TUIC,
+            'host' => '127.0.0.1',
+            'port' => 9443,
+            'server_port' => 9443,
+            'rate' => '1',
+            'group_id' => [1],
+            'enabled' => true,
+            'protocol_settings' => [
+                'version' => 1,
+                'congestion_control' => 'bbr',
+                'udp_relay_mode' => 'native',
+                'tls' => ['server_name' => 'tu.example.com', 'alpn' => ['h3']],
+            ],
+        ]);
+
+        $config = ServerService::buildNodeConfig($server);
+
+        $this->assertSame('bbr', $config['congestion_control']);
+        $this->assertArrayNotHasKey('udp_relay_mode', $config);
+    }
+
     public function test_hysteria_policy_fields_omitted_for_plain_nodes(): void
     {
         $server = Server::create([

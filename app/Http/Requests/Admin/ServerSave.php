@@ -22,6 +22,14 @@ class ServerSave extends FormRequest
         'multiplex.brutal.enabled' => 'nullable|boolean',
         'multiplex.brutal.up_mbps' => 'nullable|integer',
         'multiplex.brutal.down_mbps' => 'nullable|integer',
+        // protocol/max_connections/min_streams/max_streams 是订阅/客户端域参数
+        // （app/Protocols/SingBox.php 客户端出站渲染，协议默认 yamux）。
+        // 服务端 sing-box 入站只收 enabled/padding/brutal，其余由 xboard-node
+        // warn-drop（见 docs-params-support.md）。这里只做形状校验防脏值入库。
+        'multiplex.protocol' => 'nullable|string|in:smux,yamux,h2mux',
+        'multiplex.max_connections' => 'nullable|integer|min:0',
+        'multiplex.min_streams' => 'nullable|integer|min:0',
+        'multiplex.max_streams' => 'nullable|integer|min:0',
     ];
 
     // 通用入站策略：sniff 三键 + udpIdleTimeout，全部协议可用
@@ -135,11 +143,19 @@ class ServerSave extends FormRequest
             // config（节点停留在旧配置）。保存侧禁止非空；空串/null/缺省可过。
             'plugin' => 'prohibited',
             'plugin_opts' => 'prohibited',
+            // ss simple-obfs 同样双内核均无服务端实现，且 buildNodeConfig 不下发——
+            // 配了 node 照常明文服务而 obfs 客户端连不上（静默断线）。照 plugin 先例
+            // 保存侧禁止非空；存量行的历史值到下次保存才强制清掉。
+            'obfs' => 'prohibited',
+            'obfs_settings.path' => 'prohibited',
+            'obfs_settings.host' => 'prohibited',
         ],
         'vmess' => [
             'tls' => 'required|' . self::TLS_LEVEL_RULE,
             'network' => self::NETWORK_RULE,
             'network_settings' => 'nullable|array',
+            // 死键（v2board 遗留）：面板无消费者、buildNodeConfig 不下发。保留
+            // nullable 规则避免旧 UI 提交时报 400
             'rules' => 'nullable|array',
             'accept_proxy_protocol' => 'nullable|boolean',
         ],
@@ -226,8 +242,12 @@ class ServerSave extends FormRequest
             'version' => 'nullable|integer',
             // sing-box TUIC 入站枚举
             'congestion_control' => 'nullable|string|in:cubic,new_reno,bbr',
+            // 死键：服务端 ALPN 固定 h3，buildNodeConfig 不下发（tls.alpn 才是生效路径）
             'alpn' => 'nullable|array',
-            'udp_relay_mode' => 'nullable|string',
+            // 订阅/客户端域参数（TUICOutboundOptions，各客户端渲染器消费，默认
+            // native）；sing-box 入站无此选项，buildNodeConfig 不下发。enum 校验
+            // 防脏值写坏客户端订阅配置
+            'udp_relay_mode' => 'nullable|string|in:native,quic',
         ],
         'mieru' => [
             'transport' => 'required|string|in:TCP,UDP',
