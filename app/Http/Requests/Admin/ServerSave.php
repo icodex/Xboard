@@ -280,6 +280,7 @@ class ServerSave extends FormRequest
             'rate_time_ranges' => 'nullable|array',
             'custom_outbounds' => 'nullable|array',
             'custom_routes' => 'nullable|array',
+            'custom_routes.*' => ['array', $this->customRouteShapeRule()],
             'cert_config' => 'nullable|array',
             // 每节点内核选择；空 = 不下发，节点侧 kernel.type auto 解析
             'kernel_type' => 'nullable|string|in:auto,singbox,xray',
@@ -292,6 +293,45 @@ class ServerSave extends FormRequest
             'protocol_settings' => 'array',
             'transfer_enable' => 'nullable|integer|min:0',
         ];
+    }
+
+    // Raw custom_routes 接受三种形态（xboard-node internal/route.DetectForm）：
+    // 结构化 match/action、Xray 原生（outboundTag/type）、sing-box 原生。
+    // 节点侧对坏规则是"丢弃 + error 日志"（绝不因 raw 规则退进程），这里是
+    // 保存闸门：管理员保存时 fail-fast，避免坏规则静默失效。
+    private const CUSTOM_ROUTE_STRUCTURED_KEYS = ['name', 'disabled', 'match', 'action'];
+
+    private const CUSTOM_ROUTE_SINGBOX_KEYS = [
+        'outbound', 'action', 'network', 'ip_cidr', 'ip_is_private', 'domain',
+        'domain_suffix', 'domain_keyword', 'domain_regex', 'port', 'port_range',
+        'source_ip_cidr', 'source_port', 'source_port_range', 'inbound',
+        'protocol', 'clash_mode', 'invert', 'rule_set',
+    ];
+
+    private function customRouteShapeRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail): void {
+            $keys = is_array($value) ? array_keys($value) : [];
+            $hasAction = isset($value['action']);
+
+            // 结构化：有 action 且键全在允许集内
+            if ($hasAction && array_diff($keys, self::CUSTOM_ROUTE_STRUCTURED_KEYS) === []) {
+                return;
+            }
+            // Xray 原生
+            if (isset($value['outboundTag']) || isset($value['type'])) {
+                return;
+            }
+            // sing-box 原生
+            if (array_diff($keys, self::CUSTOM_ROUTE_SINGBOX_KEYS) === []
+                && (isset($value['outbound']) || $hasAction)) {
+                return;
+            }
+
+            $fail('无法识别的路由规则形态（键：' . implode(', ', $keys) . '）：'
+                . '请用 Xray 原生（outboundTag）、sing-box 原生（outbound）或结构化 match/action 形态；'
+                . '跨内核推荐面板的结构化路由规则字段');
+        };
     }
 
     private function getProtocolRules(string $type): array

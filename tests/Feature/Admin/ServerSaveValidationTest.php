@@ -215,6 +215,35 @@ class ServerSaveValidationTest extends TestCase
         }
     }
 
+    public function test_custom_routes_accepts_three_shapes(): void
+    {
+        $base = ['tls' => 0, 'network' => 'tcp'];
+
+        // structured match/action (the shape the node compiles per kernel)
+        $this->assertFalse($this->validate($base, 'vless', [
+            'custom_routes' => [[
+                'match' => ['networks' => ['tcp', 'udp']],
+                'action' => ['type' => 'route', 'target' => 'proxy'],
+            ]],
+        ])->fails());
+
+        // Xray-native
+        $this->assertFalse($this->validate($base, 'vless', [
+            'custom_routes' => [['type' => 'field', 'network' => 'udp,tcp', 'outboundTag' => 'proxy']],
+        ])->fails());
+
+        // sing-box native
+        $this->assertFalse($this->validate($base, 'vless', [
+            'custom_routes' => [['outbound' => 'proxy', 'ip_cidr' => ['10.0.0.0/8']]],
+        ])->fails());
+
+        // unrecognized shape is rejected with the offending keys named
+        $errors = $this->validate($base, 'vless', [
+            'custom_routes' => [['foo' => 'bar', 'outboundTag2' => 'x']],
+        ])->errors();
+        $this->assertNotEmpty($errors, 'unrecognized raw route shape should be rejected');
+    }
+
     public function test_cert_config_mode_whitelist(): void
     {
         // dns/http/file/content 各有 required_if 配套字段，走专属用例；此处只测无附加要求的模式
