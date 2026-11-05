@@ -136,9 +136,6 @@ class ServerSave extends FormRequest
     private const PROTOCOL_RULES = [
         'shadowsocks' => [
             'cipher' => 'required|string|' . self::SHADOWSOCKS_CIPHERS,
-            'obfs' => 'nullable|string',
-            'obfs_settings.path' => 'nullable|string',
-            'obfs_settings.host' => 'nullable|string',
             // SIP003 双内核均无实现：节点 ValidateNodeSpec 对非空 plugin 直接拒收整个
             // config（节点停留在旧配置）。保存侧禁止非空；空串/null/缺省可过。
             'plugin' => 'prohibited',
