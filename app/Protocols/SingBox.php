@@ -821,7 +821,7 @@ class SingBox extends AbstractProtocol
             default => [
                 'type' => 'hysteria',
                 'auth_str' => $password,
-                'obfs' => data_get($protocol_settings, 'obfs.password'),
+                'obfs' => data_get($protocol_settings, 'obfs.open') ? data_get($protocol_settings, 'obfs.password') : null,
                 'disable_mtu_discovery' => true,
             ]
         };
@@ -1010,6 +1010,11 @@ class SingBox extends AbstractProtocol
                 'type' => 'http',
                 'host' => data_get($protocol_settings, 'network_settings.host'),
                 'path' => data_get($protocol_settings, 'network_settings.path')
+            ],
+            'http' => [
+                'type' => 'http',
+                'path' => data_get($protocol_settings, 'network_settings.path'),
+                'host' => data_get($protocol_settings, 'network_settings.host'),
             ],
             'httpupgrade' => [
                 'type' => 'httpupgrade',

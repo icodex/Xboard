@@ -14,7 +14,7 @@ fi
 
 docker cp seed-nodes.php "$CID":/www/seed-nodes.php
 docker cp init.php "$CID":/www/init.php
-docker exec -i "$CID" php /www/artisan tinker --execute="require '/www/init.php';"
+docker exec -e PRUNE_STALE=1 -i "$CID" php /www/artisan tinker --execute="require '/www/init.php';"
 
 # secure_path 拼进路由表是启动时求值，必须 restart 重载路由
 docker restart "$CID" >/dev/null
@@ -36,8 +36,9 @@ echo "sqlite integrity_check: ok"
 # 下发准确性门禁：逐节点 API×DB 语义校验 + 高级参数临时探针，失败即中止
 for script in verify-api.php verify-params.php; do
   docker cp "$script" "$CID":/www/"$script"
-  # 无条件传 full：verify-params 不读该变量；verify-api 手动跑时默认 config（不写 LAST_CHECK_AT）
-  if ! out=$(docker exec -e VERIFY_MODE=full -i "$CID" php /www/artisan tinker --execute="require '/www/$script';" 2>&1); then
+  # verify-api 默认 config：full 的 user 端点会写 LAST_CHECK_AT，紧接着跑测试会伪造在线证据。
+  # 需要验 user 时显式 VERIFY_MODE=full ./init.sh（不要在测试前跑）。
+  if ! out=$(docker exec -e VERIFY_MODE="${VERIFY_MODE:-config}" -i "$CID" php /www/artisan tinker --execute="require '/www/$script';" 2>&1); then
     echo "=== $script FAILED ===" >&2
     echo "$out" >&2
     exit 1

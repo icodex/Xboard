@@ -98,6 +98,25 @@ class ServerSaveValidationTest extends TestCase
         }
     }
 
+    public function test_shadowsocks_xray_cipher_whitelist_is_narrower(): void
+    {
+        // xray fork cipherFromString has no aes-192-gcm (CipherType_UNKNOWN ->
+        // kernel parse failure), so pinning kernel_type=xray must reject it.
+        $errors = $this->validate(['cipher' => 'aes-192-gcm'], 'shadowsocks', ['kernel_type' => 'xray'])->errors();
+        $this->assertTrue($errors->has('protocol_settings.cipher'), 'aes-192-gcm + xray should fail');
+
+        // auto resolves Shadowsocks to sing-box, which does implement aes-192-gcm.
+        foreach (['singbox', 'auto', null] as $kernel) {
+            $validator = $this->validate(['cipher' => 'aes-192-gcm'], 'shadowsocks', ['kernel_type' => $kernel]);
+            $this->assertFalse($validator->fails(), 'aes-192-gcm + kernel_type=' . var_export($kernel, true) . ' should pass');
+        }
+
+        $this->assertFalse(
+            $this->validate(['cipher' => 'aes-256-gcm'], 'shadowsocks', ['kernel_type' => 'xray'])->fails(),
+            'aes-256-gcm + xray should pass'
+        );
+    }
+
     public function test_socks_rejects_tls(): void
     {
         // Kernel socks inbound has no TLS option: tls=1 saves fine but serves

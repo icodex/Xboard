@@ -139,6 +139,10 @@ foreach (Server::whereJsonContains('group_ids', (string) (App\Models\ServerGroup
             if ($actual['plugin'] !== null || $actual['plugin_opts'] !== null) {
                 $fail('plugin must be null');
             }
+            $xraySs = ['aes-128-gcm', 'aes-256-gcm', 'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305', '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm'];
+            if ($node->kernel_type === 'xray' && !in_array($ps['cipher'] ?? '', $xraySs, true)) {
+                $fail('xray kernel cannot parse cipher ' . ($ps['cipher'] ?? ''));
+            }
             break;
 
         case 'vmess':
@@ -196,7 +200,8 @@ foreach (Server::whereJsonContains('group_ids', (string) (App\Models\ServerGroup
                 $fail('hysteria bandwidth mismatch');
             }
             if ((int) ($ps['version'] ?? 0) === 1) {
-                if (($actual['obfs'] ?? null) !== ($ps['obfs']['password'] ?? null)) {
+                $wantObfs = ($ps['obfs']['open'] ?? false) ? ($ps['obfs']['password'] ?? null) : null;
+                if (($actual['obfs'] ?? null) !== $wantObfs) {
                     $fail('hysteria1 obfs mismatch');
                 }
             } else {

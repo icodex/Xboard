@@ -192,6 +192,37 @@ class BuildNodeConfigTest extends TestCase
         }
     }
 
+    public function test_hysteria_v1_obfs_honors_open_flag(): void
+    {
+        // DB rows 37/153 store obfs.open=false; dispatch used to send the
+        // password anyway, so the node ran an obfs the panel reported as off.
+        $server = Server::create([
+            'name' => 'hy1-obfs-node',
+            'type' => Server::TYPE_HYSTERIA,
+            'host' => '127.0.0.1',
+            'port' => 8443,
+            'server_port' => 8443,
+            'rate' => '1',
+            'group_id' => [1],
+            'enabled' => true,
+            'protocol_settings' => [
+                'version' => 1,
+                'obfs' => ['open' => false, 'type' => 'salamander', 'password' => 'obfspass'],
+            ],
+        ]);
+
+        $config = ServerService::buildNodeConfig($server);
+        $this->assertNull($config['obfs'], 'obfs.open=false must not send a password');
+
+        $server->protocol_settings = array_replace_recursive($server->protocol_settings, [
+            'obfs' => ['open' => true],
+        ]);
+        $server->save();
+
+        $config = ServerService::buildNodeConfig($server->refresh());
+        $this->assertSame('obfspass', $config['obfs']);
+    }
+
     public function test_generic_policy_sent_for_all_protocols(): void
     {
         $makeConfig = function (string $type, array $protocolSettings) {

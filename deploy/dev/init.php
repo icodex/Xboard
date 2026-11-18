@@ -46,13 +46,21 @@ if ($invalid !== []) {
     throw new \RuntimeException('seed violates ServerSave rules: ' . json_encode($invalid, JSON_UNESCAPED_UNICODE));
 }
 
-// 种子按名称更新，矩阵改名后旧节点会残留并混进测试表；只告警不删除。
+// 种子按名称更新，矩阵改名后旧节点会残留并混进测试表。
+// 仅测试分组、且不在当前种子名单里的行；设 PRUNE_STALE=1 时删除（init.sh 默认开启），
+// 否则只告警。其他分组与手工节点不受影响。
 $stale = Server::whereJsonContains('group_ids', (string) $group->id)
-    ->pluck('name')
-    ->diff($seededNames);
-if ($stale->isNotEmpty()) {
-    echo 'WARN stale test nodes not in seed: ' . $stale->take(5)->implode(', ')
-        . ($stale->count() > 5 ? ' (+' . ($stale->count() - 5) . ')' : '') . PHP_EOL;
+    ->whereNotIn('name', $seededNames);
+if ($stale->exists()) {
+    $names = $stale->pluck('name');
+    if (getenv('PRUNE_STALE') === '1') {
+        $deleted = $stale->get()->each->delete()->count();
+        echo 'PRUNED stale test nodes: ' . $names->take(5)->implode(', ')
+            . ($names->count() > 5 ? ' (+' . ($names->count() - 5) . ')' : '') . ' total=' . $deleted . PHP_EOL;
+    } else {
+        echo 'WARN stale test nodes not in seed: ' . $names->take(5)->implode(', ')
+            . ($names->count() > 5 ? ' (+' . ($names->count() - 5) . ')' : '') . PHP_EOL;
+    }
 }
 
 Plan::firstOrCreate(

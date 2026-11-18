@@ -363,7 +363,7 @@ class ServerService
                 'up_mbps' => (int) data_get($protocolSettings, 'bandwidth.up'),
                 'down_mbps' => (int) data_get($protocolSettings, 'bandwidth.down'),
                 ...match ((int) $protocolSettings['version']) {
-                        1 => ['obfs' => data_get($protocolSettings, 'obfs.password')],
+                        1 => ['obfs' => data_get($protocolSettings, 'obfs.open') ? data_get($protocolSettings, 'obfs.password') : null],
                         2 => [
                             'obfs' => data_get($protocolSettings, 'obfs.open') ? data_get($protocolSettings, 'obfs.type') : null,
                             'obfs-password' => data_get($protocolSettings, 'obfs.password'),

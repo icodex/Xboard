@@ -68,6 +68,11 @@ class ServerSave extends FormRequest
     // xray 同样无 multi-user 形态，双内核配了都拒启（xboard-node docs-protocol-support）
     private const SHADOWSOCKS_CIPHERS = 'in:aes-128-gcm,aes-192-gcm,aes-256-gcm,chacha20-ietf-poly1305,xchacha20-ietf-poly1305,2022-blake3-aes-128-gcm,2022-blake3-aes-256-gcm';
 
+    // xray fork infra/conf/shadowsocks.go cipherFromString only knows these
+    // AEAD methods (plus the 2022 blake3-aes ones); anything else resolves to
+    // CipherType_UNKNOWN and the kernel dies at config parse.
+    private const SHADOWSOCKS_CIPHERS_XRAY = 'in:aes-128-gcm,aes-256-gcm,chacha20-ietf-poly1305,xchacha20-ietf-poly1305,2022-blake3-aes-128-gcm,2022-blake3-aes-256-gcm';
+
     private const ECH_RULES = [
         'enabled' => 'nullable|boolean',
         'config' => 'nullable|string',
@@ -430,6 +435,12 @@ class ServerSave extends FormRequest
         $rules = $this->getBaseRules();
         $protocolRules = $this->getProtocolRules($type);
 
+        // 显式 pin xray 时 cipher 收窄到 xray fork 能解析的方法；auto 对
+        // shadowsocks 解析到 sing-box，故保持全量列表。
+        if ($type === 'shadowsocks' && $this->input('kernel_type') === 'xray') {
+            $protocolRules['cipher'] = 'required|string|' . self::SHADOWSOCKS_CIPHERS_XRAY;
+        }
+
         foreach ($protocolRules as $field => $rule) {
             $rules['protocol_settings.' . $field] = $rule;
         }
@@ -537,6 +548,9 @@ class ServerSave extends FormRequest
         if ($this->input('type') === 'shadowsocks') {
             $messages['protocol_settings.plugin.prohibited'] = 'SIP003 插件双内核均无实现，节点会拒收该节点配置，请留空';
             $messages['protocol_settings.plugin_opts.prohibited'] = 'SIP003 插件双内核均无实现，节点会拒收该节点配置，请留空';
+            if ($this->input('kernel_type') === 'xray') {
+                $messages['protocol_settings.cipher.in'] = 'xray 内核不支持该 cipher；支持 aes-128-gcm/aes-256-gcm/chacha20-ietf-poly1305/xchacha20-ietf-poly1305/2022-blake3-aes-*-gcm';
+            }
         }
 
         return $messages;

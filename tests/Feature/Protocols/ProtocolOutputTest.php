@@ -127,6 +127,70 @@ class ProtocolOutputTest extends TestCase
         $this->assertSame('ws', $vmessConfig['net']);
     }
 
+    public function test_singbox_emits_http_transport(): void
+    {
+        // DB rows 52/72/88/174/204/227 store network=http; the builder had no
+        // 'http' arm, so those outbounds shipped without any transport while
+        // h2 rows shipped one (clients then dialed plaintext HTTP/1.1).
+        $server = [
+            'id' => 9,
+            'type' => 'vmess',
+            'name' => 'HK-HTTP',
+            'host' => 'http.example.com',
+            'port' => 80,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls' => 0,
+                'network' => 'http',
+                'network_settings' => [
+                    'path' => '/matrix',
+                    'host' => 'example.com',
+                ],
+                'reality_settings' => null,
+                'multiplex' => null,
+                'utls' => null,
+            ],
+        ];
+
+        $protocol = new SingBox($this->user(), [$server], 'sfa', '1.12.0', 'SFA/1.12.0');
+        $config = json_decode($protocol->handle()->getContent(), true);
+
+        $vmess = collect($config['outbounds'])->firstWhere('tag', 'HK-HTTP');
+        $this->assertIsArray($vmess, 'http vmess outbound must be emitted');
+        $this->assertSame('http', $vmess['transport']['type']);
+        $this->assertSame('/matrix', $vmess['transport']['path']);
+        $this->assertSame('example.com', $vmess['transport']['host']);
+    }
+
+    public function test_singbox_hysteria_v1_obfs_honors_open_flag(): void
+    {
+        $make = function (bool $open, string $name) {
+            return [
+                'id' => 37,
+                'type' => 'hysteria',
+                'name' => $name,
+                'host' => 'hy.example.com',
+                'port' => 8443,
+                'password' => 'hy-pass',
+                'protocol_settings' => [
+                    'version' => 1,
+                    'obfs' => ['open' => $open, 'type' => 'salamander', 'password' => 'obfspass'],
+                    'tls' => ['server_name' => 'hy.example.com'],
+                    'bandwidth' => ['up' => 100, 'down' => 100],
+                ],
+            ];
+        };
+
+        $off = new SingBox($this->user(), [$make(false, 'HY-OFF')], 'sfa', '1.12.0', 'SFA/1.12.0');
+        $offOutbound = collect(json_decode($off->handle()->getContent(), true)['outbounds'])->firstWhere('tag', 'HY-OFF');
+        $this->assertSame('hysteria', $offOutbound['type']);
+        $this->assertArrayNotHasKey('obfs', $offOutbound, 'obfs.open=false must not emit obfs');
+
+        $on = new SingBox($this->user(), [$make(true, 'HY-ON')], 'sfa', '1.12.0', 'SFA/1.12.0');
+        $onOutbound = collect(json_decode($on->handle()->getContent(), true)['outbounds'])->firstWhere('tag', 'HY-ON');
+        $this->assertSame('obfspass', $onOutbound['obfs']);
+    }
+
     private function user(): array
     {
         return [

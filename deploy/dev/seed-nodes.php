@@ -58,7 +58,7 @@ foreach (['aes-128-gcm', 'aes-192-gcm', 'chacha20-ietf-poly1305', 'xchacha20-iet
     $nodes[] = ['shadowsocks', 'SS-' . $cipher, $port++, ['cipher' => $cipher], []];
 }
 $nodes[] = ['hysteria', 'Hysteria2-plain', $port++, ['version' => 2, 'bandwidth' => ['up' => 100, 'down' => 200], 'tls' => ['server_name' => 'test.local']], $certSelf];
-$nodes[] = ['hysteria', 'Hysteria1-obfs', $port++, ['version' => 1, 'bandwidth' => ['up' => 100, 'down' => 200], 'obfs' => ['password' => 'obfspass'], 'tls' => ['server_name' => 'test.local']], $certSelf];
+$nodes[] = ['hysteria', 'Hysteria1-obfs', $port++, ['version' => 1, 'bandwidth' => ['up' => 100, 'down' => 200], 'obfs' => ['open' => true, 'password' => 'obfspass'], 'tls' => ['server_name' => 'test.local']], $certSelf];
 foreach (['cubic', 'new_reno'] as $cc) {
     $nodes[] = ['tuic', 'TUIC-' . $cc, $port++, ['version' => 5, 'congestion_control' => $cc, 'tls' => ['server_name' => 'test.local']], $certSelf];
 }
@@ -101,8 +101,10 @@ foreach ($scenarios as [$type, $name, $unused, $settings, $extra]) {
         continue;
     }
     $network = $settings['network'] ?? 'tcp';
+    $xraySsCiphers = ['aes-128-gcm', 'aes-256-gcm', 'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305', '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm'];
     $kernels = match (true) {
-        in_array($type, ['shadowsocks', 'vmess', 'vless', 'trojan'], true) => ['singbox', 'xray'],
+        $type === 'shadowsocks' => in_array($settings['cipher'] ?? '', $xraySsCiphers, true) ? ['singbox', 'xray'] : ['singbox'],
+        in_array($type, ['vmess', 'vless', 'trojan'], true) => ['singbox', 'xray'],
         $type === 'hysteria' && ($settings['version'] ?? null) === 2 => ['singbox', 'xray'],
         default => ['singbox'],
     };

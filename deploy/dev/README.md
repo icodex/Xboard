@@ -22,11 +22,11 @@ sudo -n docker compose up -d --build      # 从本地 Dockerfile 构建 xboard-t
 
 `init.sh` 自动从当前数据库生成交接 prompt `NODE-TEST-PROMPT.md`，含实际 ID、端口、传输、关键参数（cipher/版本/obfs/flow）和内核，贴到 Xboard-node 会话。固定 `singbox` / `xray` 的副本分别验证双内核；`Socks-tls` 是禁用的历史负向样本，不是加密节点。
 
-初始化现在会先用 `ServerSave` 规则逐条预检启用种子，违反即抛错中止，避免脏配置进节点测试；矩阵改名后残留的旧节点只告警（`WARN stale test nodes`），不自动删除。
+初始化现在会先用 `ServerSave` 规则逐条预检启用种子，违反即抛错中止，避免脏配置进节点测试；矩阵改名后的残留节点只处理测试分组内、且不在当前种子名单里的行（`init.sh` 传 `PRUNE_STALE=1` 删除并打印 `PRUNED`，手工执行 `init.php` 则只告警）。
 
 初始化末尾自动跑两个下发门禁，任一失败即中止：
 
-- `verify-api.php`：233 条逐节点比对真实 UniProxy `config`/`user` 响应与面板组装结果。默认 `VERIFY_MODE=config` 只验 `config`；`init.sh` 显式传 `full` 才验 `user`。因为 `user` 端点会 `touchNode()` 写 `LAST_CHECK_AT`（TTL 1h），**测试进行中只能跑 config 模式**，否则会伪造在线证据。其余断言：协议、端口、传输、TLS/Reality 透传、cipher、SS2022 `server_key`、hysteria 版本/带宽/obfs、tuic 拥塞、mieru、证书归一化、kernel 覆盖、可选键未空发、ETag/304、错误 token 拒绝。Socks 记录会归一化为明文并单独标记。
+- `verify-api.php`：233 条逐节点比对真实 UniProxy `config`/`user` 响应与面板组装结果。默认 `VERIFY_MODE=config` 只验 `config`；`init.sh` 跟随 `VERIFY_MODE`（默认 config），需要验 `user` 时 `VERIFY_MODE=full ./init.sh`，且不要在测试前跑。因为 `user` 端点会 `touchNode()` 写 `LAST_CHECK_AT`（TTL 1h），**测试进行中只能跑 config 模式**，否则会伪造在线证据。其余断言：协议、端口、传输、TLS/Reality 透传、cipher、SS2022 `server_key`、hysteria 版本/带宽/obfs、tuic 拥塞、mieru、证书归一化、kernel 覆盖、可选键未空发、ETag/304、错误 token 拒绝。Socks 记录会归一化为明文并单独标记。
 - `verify-params.php`：临时创建 10 个带高级参数的探针节点（mux、sniff、udpIdleTimeout、PROXY protocol、QUIC 调优、ECH/ALPN、VLESS encryption、masquerade/resolver/congestion、padding_scheme、file 证书），走真实 API 断言后删除；用于覆盖种子矩阵没有的高级字段。会写库，**测试进行中不要跑**。
 
 ## 登录信息
