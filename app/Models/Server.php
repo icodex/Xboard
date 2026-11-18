@@ -613,7 +613,10 @@ class Server extends Model
     }
 
     /**
-     * 在线用户数访问器
+     * 活跃用户数访问器
+     *
+     * 口径是「最近一次流量上报里出现过的用户数」，不是在线连接数：
+     * 空闲但仍在线的用户不会出现，刚断开的用户还会残留最多 1 小时。
      */
     protected function online(): Attribute
     {
@@ -621,7 +624,7 @@ class Server extends Model
             get: function () {
                 $type = strtoupper($this->type);
                 $serverId = $this->parent_id ?: $this->id;
-                return Cache::get(CacheKey::get("SERVER_{$type}_ONLINE_USER", $serverId)) ?? 0;
+                return Cache::get(CacheKey::get("SERVER_{$type}_ACTIVE_USER", $serverId)) ?? 0;
             }
         );
     }

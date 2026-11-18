@@ -45,8 +45,11 @@ class Helper
 
     public static function generateOrderNo(): string
     {
-        $randomChar = mt_rand(10000, 99999);
-        return date('YmdHis') . substr(microtime(), 2, 6) . $randomChar;
+        // 微秒段保证同一秒内的多个进程不撞号；trade_no 有唯一索引，
+        // 只剩 6 位随机数时高并发收银台会偶发唯一键冲突（500 掉单）
+        return date('YmdHis')
+            . substr(microtime(), 2, 6)
+            . str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT);
     }
 
     public static function randomChar($len, $special = false)
@@ -69,10 +72,9 @@ class Helper
         }
 
         $charsLen = count($chars) - 1;
-        shuffle($chars);
         $str = '';
         for ($i = 0; $i < $len; $i++) {
-            $str .= $chars[mt_rand(0, $charsLen)];
+            $str .= $chars[random_int(0, $charsLen)];
         }
         return $str;
     }
@@ -156,7 +158,7 @@ class Helper
         $subscribeUrlList = $urlString ? explode(',', $urlString) : [];
         
         if (empty($subscribeUrlList)) {
-            return HookManager::filter('subscribe.url', url($path));
+            return HookManager::filter('subscribe.url', trusted_site_url($path) ?? $path);
         }
         
         $selectedUrl = self::replaceByPattern(Arr::random($subscribeUrlList));

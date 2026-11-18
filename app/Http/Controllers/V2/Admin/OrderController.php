@@ -35,7 +35,7 @@ class OrderController extends Controller
     public function fetch(Request $request)
     {
         $current = $request->input('current', 1);
-        $pageSize = $request->input('pageSize', 10);
+        $pageSize = $this->perPage($request);
         $orderModel = Order::with('plan:id,name');
 
         if ($request->boolean('is_commission')) {
@@ -63,6 +63,18 @@ class OrderController extends Controller
         return $this->paginate($paginatedResults);
     }
 
+    /**
+     * filter[].id / sort[].id 会拼进 SQL 列位（值才是绑定的），请求原件不可直接入列，
+     * 否则可用 `... ` 或子查询做盲注。白名单外的字段直接忽略。
+     */
+    private const FILTERABLE_COLUMNS = [
+        'id', 'invite_user_id', 'user_id', 'plan_id', 'coupon_id', 'payment_id',
+        'type', 'period', 'trade_no', 'callback_no', 'total_amount', 'handling_amount',
+        'discount_amount', 'surplus_amount', 'surplus_credit', 'balance_amount',
+        'surplus_order_ids', 'status', 'commission_status', 'commission_balance',
+        'actual_commission_balance', 'paid_at', 'refunded_at', 'created_at', 'updated_at',
+    ];
+
     private function applyFiltersAndSorts(Request $request, Builder $builder): void
     {
         $this->applyFilters($request, $builder);
@@ -75,8 +87,19 @@ class OrderController extends Controller
             return;
         }
 
-        collect($request->input('filter'))->each(function ($filter) use ($builder) {
-            $field = $filter['id'];
+        $filters = $request->input('filter');
+        if (!is_array($filters)) {
+            return;
+        }
+
+        collect($filters)->each(function ($filter) use ($builder) {
+            if (!is_array($filter)) {
+                return;
+            }
+            $field = $filter['id'] ?? null;
+            if (!in_array($field, self::FILTERABLE_COLUMNS, true)) {
+                return;
+            }
             $value = $filter['value'];
 
             $builder->where(function ($query) use ($field, $value) {
@@ -100,6 +123,17 @@ class OrderController extends Controller
         }
 
         [$operator, $filterValue] = explode(':', $value, 2);
+        $operator = strtolower($operator);
+
+        // 空值判定没有右侧操作数，必须先处理：闭包不能当 where() 的操作符传进去
+        if ($operator === 'null') {
+            $query->whereNull($field);
+            return;
+        }
+        if ($operator === 'notnull') {
+            $query->whereNotNull($field);
+            return;
+        }
 
         // Convert numeric strings to appropriate type
         if (is_numeric($filterValue)) {
@@ -109,22 +143,19 @@ class OrderController extends Controller
         }
 
         // Apply operator
-        $query->where($field, match (strtolower($operator)) {
-            'eq' => '=',
-            'gt' => '>',
-            'gte' => '>=',
-            'lt' => '<',
-            'lte' => '<=',
-            'like' => 'like',
-            'notlike' => 'not like',
-            'null' => static fn($q) => $q->whereNull($field),
-            'notnull' => static fn($q) => $q->whereNotNull($field),
-            default => 'like'
-        }, match (strtolower($operator)) {
-            'like', 'notlike' => "%{$filterValue}%",
-            'null', 'notnull' => null,
-            default => $filterValue
-        });
+        $query->where(
+            $field,
+            match ($operator) {
+                'eq' => '=',
+                'gt' => '>',
+                'gte' => '>=',
+                'lt' => '<',
+                'lte' => '<=',
+                'notlike' => 'not like',
+                default => 'like',
+            },
+            in_array($operator, ['like', 'notlike'], true) ? "%{$filterValue}%" : $filterValue
+        );
     }
 
     private function applySorting(Request $request, Builder $builder): void
@@ -133,9 +164,20 @@ class OrderController extends Controller
             return;
         }
 
-        collect($request->input('sort'))->each(function ($sort) use ($builder) {
-            $field = $sort['id'];
-            $direction = $sort['desc'] ? 'DESC' : 'ASC';
+        $sorts = $request->input('sort');
+        if (!is_array($sorts)) {
+            return;
+        }
+
+        collect($sorts)->each(function ($sort) use ($builder) {
+            if (!is_array($sort)) {
+                return;
+            }
+            $field = $sort['id'] ?? null;
+            if (!in_array($field, self::FILTERABLE_COLUMNS, true)) {
+                return;
+            }
+            $direction = !empty($sort['desc']) ? 'DESC' : 'ASC';
             $builder->orderBy($field, $direction);
         });
     }
@@ -172,6 +214,65 @@ class OrderController extends Controller
             return $this->fail([400, '更新失败']);
         }
         return $this->success(true);
+    }
+
+    /**
+     * Reconcile a payment captured after the order was cancelled.
+     * complete => retry provisioning; refund => record an out-of-band refund.
+     */
+    public function reconcile(Request $request)
+    {
+        $data = $request->validate([
+            'trade_no' => 'required|string',
+            'action' => 'required|in:complete,refund',
+        ]);
+
+        try {
+            $order = DB::transaction(function () use ($data) {
+                $order = Order::where('trade_no', $data['trade_no'])->lockForUpdate()->first();
+                if (!$order) {
+                    throw new \RuntimeException('订单不存在');
+                }
+
+                if ($data['action'] === 'refund') {
+                    if ($order->refunded_at !== null) {
+                        return $order;
+                    }
+                    if ($order->paid_at === null) {
+                        throw new \RuntimeException('该订单没有迟到付款记录');
+                    }
+                    $order->refunded_at = time();
+                    $order->saveOrFail();
+                    return $order;
+                }
+
+                if ($order->refunded_at !== null) {
+                    throw new \RuntimeException('该订单已标记退款，不能补单');
+                }
+                if ((int) $order->status === Order::STATUS_COMPLETED) {
+                    return $order;
+                }
+                if ((int) $order->status === Order::STATUS_PROCESSING) {
+                    return $order;
+                }
+                if ((int) $order->status !== Order::STATUS_CANCELLED || $order->paid_at === null) {
+                    throw new \RuntimeException('只有已取消且已付款的订单可以补单');
+                }
+
+                $order->status = Order::STATUS_PROCESSING;
+                $order->saveOrFail();
+                DB::afterCommit(fn () => \App\Jobs\OrderHandleJob::dispatch($order->trade_no));
+                return $order;
+            });
+        } catch (\RuntimeException $e) {
+            return $this->fail([422, $e->getMessage()]);
+        }
+
+        return $this->success([
+            'trade_no' => $order->trade_no,
+            'status' => $order->status,
+            'refunded_at' => $order->refunded_at,
+        ]);
     }
 
     public function update(OrderUpdate $request)

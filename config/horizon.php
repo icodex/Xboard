@@ -172,7 +172,7 @@ return [
         'production' => [
             'data-pipeline' => [
                 'connection' => 'redis',
-                'queue' => ['traffic_fetch', 'stat', 'user_alive_sync'],
+                'queue' => ['traffic_fetch', 'stat'],
                 'balance' => 'auto',
                 'autoScalingStrategy' => 'time',
                 'minProcesses' => 1,
@@ -222,7 +222,6 @@ return [
                     'send_email',
                     'send_email_mass',
                     'send_telegram',
-                    'user_alive_sync',
                     'node_sync'
                 ],
                 'balance' => 'auto',

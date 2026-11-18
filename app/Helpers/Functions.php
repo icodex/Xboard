@@ -50,33 +50,33 @@ if (!function_exists('admin_settings_batch')) {
     }
 }
 
+if (!function_exists('trusted_site_url')) {
+    /**
+     * Build an absolute URL from the configured site address only.
+     * Request Host and Referer are attacker-controlled and must never decide
+     * where a login token, subscription token or payment callback goes.
+     */
+    function trusted_site_url(string $path = ''): ?string
+    {
+        $base = rtrim((string) (admin_setting('app_url') ?: config('app.url')), '/');
+        $scheme = parse_url($base, PHP_URL_SCHEME);
+
+        if ($base === '' || !filter_var($base, FILTER_VALIDATE_URL) || !in_array($scheme, ['http', 'https'], true)) {
+            return null;
+        }
+
+        return $path === '' ? $base : $base . '/' . ltrim($path, '/');
+    }
+}
+
 if (!function_exists('source_base_url')) {
     /**
-     * 获取来源基础URL，优先Referer，其次Host
+     * 获取来源基础URL：只使用配置的站点地址，不信任 Referer/Host。
      * @param string $path
      * @return string
      */
     function source_base_url(string $path = ''): string
     {
-        $baseUrl = '';
-        $referer = request()->header('Referer');
-
-        if ($referer) {
-            $parsedUrl = parse_url($referer);
-            if (isset($parsedUrl['scheme']) && isset($parsedUrl['host'])) {
-                $baseUrl = $parsedUrl['scheme'] . '://' . $parsedUrl['host'];
-                if (isset($parsedUrl['port'])) {
-                    $baseUrl .= ':' . $parsedUrl['port'];
-                }
-            }
-        }
-
-        if (!$baseUrl) {
-            $baseUrl = request()->getSchemeAndHttpHost();
-        }
-
-        $baseUrl = rtrim($baseUrl, '/');
-        $path = ltrim($path, '/');
-        return $baseUrl . '/' . $path;
+        return trusted_site_url($path) ?? '';
     }
 }

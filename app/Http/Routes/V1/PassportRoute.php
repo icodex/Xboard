@@ -13,15 +13,17 @@ class PassportRoute
             'prefix' => 'passport'
         ], function ($router) {
             // Auth
-            $router->post('/auth/register', [AuthController::class, 'register']);
-            $router->post('/auth/login', [AuthController::class, 'login']);
-            $router->get('/auth/token2Login', [AuthController::class, 'token2Login']);
-            $router->post('/auth/forget', [AuthController::class, 'forget']);
-            $router->post('/auth/getQuickLoginUrl', [AuthController::class, 'getQuickLoginUrl']);
-            $router->post('/auth/loginWithMailLink', [AuthController::class, 'loginWithMailLink']);
+            // 公开路由必须限流：验证码默认关闭、注册 IP 限制默认关闭，
+            // 否则一个脚本就能批量发信/注册/试密码
+            $router->post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+            $router->post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+            $router->get('/auth/token2Login', [AuthController::class, 'token2Login'])->middleware('throttle:10,1');
+            $router->post('/auth/forget', [AuthController::class, 'forget'])->middleware('throttle:5,1');
+            $router->post('/auth/getQuickLoginUrl', [AuthController::class, 'getQuickLoginUrl'])->middleware('throttle:5,1');
+            $router->post('/auth/loginWithMailLink', [AuthController::class, 'loginWithMailLink'])->middleware('throttle:3,1');
             // Comm
-            $router->post('/comm/sendEmailVerify', [CommController::class, 'sendEmailVerify']);
-            $router->post('/comm/pv', [CommController::class, 'pv']);
+            $router->post('/comm/sendEmailVerify', [CommController::class, 'sendEmailVerify'])->middleware('throttle:3,1');
+            $router->post('/comm/pv', [CommController::class, 'pv'])->middleware('throttle:60,1');
         });
     }
 }

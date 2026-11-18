@@ -172,11 +172,19 @@ class GiftCardCode extends Model
     public static function generateCode(string $prefix = 'GC'): string
     {
         do {
-            $safePrefix = (string) $prefix;
-            $code = $safePrefix . strtoupper(substr(md5(uniqid($safePrefix . mt_rand(), true)), 0, 12));
+            $code = self::randomCode($prefix);
         } while (self::where('code', $code)->exists());
 
         return $code;
+    }
+
+    /**
+     * 随机码体：random_bytes 而非 uniqid/mt_rand——兑换码能直接换钱，
+     * 不能由时间推出。
+     */
+    private static function randomCode(string $prefix): string
+    {
+        return $prefix . strtoupper(bin2hex(random_bytes(6)));
     }
 
     /**
@@ -189,11 +197,30 @@ class GiftCardCode extends Model
         $expiresAt = $options['expires_at'] ?? null;
         $maxUsage = $options['max_usage'] ?? 1;
 
-        $codes = [];
-        for ($i = 0; $i < $count; $i++) {
-            $codes[] = [
+        // 每轮只发一条 whereIn 查碰撞，避免「每个码一次 EXISTS」（10000 码 = 10000 次查询）
+        $codeStrings = [];
+        $taken = [];
+        while (count($codeStrings) < $count) {
+            $need = $count - count($codeStrings);
+            $batch = [];
+            for ($i = 0; $i < $need; $i++) {
+                $batch[] = self::randomCode($prefix);
+            }
+            $taken += self::whereIn('code', $batch)->pluck('code')->flip()->all();
+            foreach ($batch as $code) {
+                if (isset($taken[$code])) {
+                    continue;
+                }
+                $taken[$code] = true;
+                $codeStrings[] = $code;
+            }
+        }
+
+        $rows = [];
+        foreach ($codeStrings as $code) {
+            $rows[] = [
                 'template_id' => $templateId,
-                'code' => self::generateCode($prefix),
+                'code' => $code,
                 'batch_id' => $batchId,
                 'status' => self::STATUS_UNUSED,
                 'expires_at' => $expiresAt,
@@ -203,7 +230,7 @@ class GiftCardCode extends Model
             ];
         }
 
-        self::insert($codes);
+        self::insert($rows);
 
         return $batchId;
     }

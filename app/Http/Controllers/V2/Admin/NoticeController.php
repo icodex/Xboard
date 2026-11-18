@@ -35,8 +35,12 @@ class NoticeController extends Controller
                 return $this->fail([500, '保存失败']);
             }
         } else {
+            $notice = Notice::find($request->input('id'));
+            if (!$notice) {
+                return $this->fail([400202, '公告不存在']);
+            }
             try {
-                Notice::find($request->input('id'))->update($data);
+                $notice->update($data);
             } catch (\Exception $e) {
                 return $this->fail([500, '保存失败']);
             }

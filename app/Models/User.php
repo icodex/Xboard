@@ -125,6 +125,19 @@ class User extends Authenticatable
         return $query->where('email', self::normalizeEmail($email));
     }
 
+    /**
+     * 有效用户：未过期。expired_at = 0 是 v2board 遗留的「永不过期」。
+     * 口径必须与 isActive() 一致。
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q) {
+            $q->where('expired_at', '>', time())
+                ->orWhereNull('expired_at')
+                ->orWhere('expired_at', 0);
+        });
+    }
+
     // 获取邀请人信息
     public function invite_user(): BelongsTo
     {
@@ -207,9 +220,12 @@ class User extends Authenticatable
      */
     public function shouldResetTraffic(): bool
     {
-        return $this->isActive() &&
-               $this->next_reset_at !== null &&
-               $this->next_reset_at <= time();
+        // next_reset_at 是 'timestamp' cast → int（不是 Carbon）；写 ->timestamp
+        // 会在运行时抛 "Attempt to read property on int"，让每分钟的 reset:traffic
+        // 对到期用户静默失败（ErrorException 被命令的 catch 吞掉）。
+        return $this->isActive()
+            && $this->next_reset_at !== null
+            && $this->next_reset_at <= time();
     }
 
     /**

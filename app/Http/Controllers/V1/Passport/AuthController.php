@@ -79,7 +79,7 @@ class AuthController extends Controller
         $email = $request->input('email');
         $password = $request->input('password');
 
-        [$success, $result] = $this->loginService->login($email, $password);
+        [$success, $result] = $this->loginService->login($email, $password, $request->ip());
 
         if (!$success) {
             return $this->fail($result);
@@ -97,12 +97,12 @@ class AuthController extends Controller
         // 处理直接通过token重定向
         if ($token = $request->input('token')) {
             $redirect = '/#/login?verify=' . $token . '&redirect=' . ($request->input('redirect', 'dashboard'));
+            $siteUrl = trusted_site_url($redirect);
+            if (!$siteUrl) {
+                return response()->json(['message' => 'Site URL is not configured'], 500);
+            }
 
-            return redirect()->to(
-                admin_setting('app_url')
-                ? admin_setting('app_url') . $redirect
-                : url($redirect)
-            );
+            return redirect()->to($siteUrl);
         }
 
         // 处理通过验证码登录
@@ -157,6 +157,9 @@ class AuthController extends Controller
         }
 
         $url = $this->loginService->generateQuickLoginUrl($user, $request->input('redirect'));
+        if (!$url) {
+            return $this->fail([500, 'Site URL is not configured']);
+        }
         return $this->success($url);
     }
 

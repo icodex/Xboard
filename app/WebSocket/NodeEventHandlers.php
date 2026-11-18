@@ -50,10 +50,9 @@ class NodeEventHandlers
         }
 
         // Get old data
-        $oldDevices = $service->getNodeDevices($nodeId);
+        $oldUserIds = $service->getNodeUserIds($nodeId);
 
         // Calculate diff
-        $removedUsers = array_diff_key($oldDevices, $data);
         $newDevices = [];
 
         foreach ($data as $userId => $ips) {
@@ -62,8 +61,10 @@ class NodeEventHandlers
             }
         }
 
+        $removedUsers = array_diff($oldUserIds, array_keys($newDevices));
+
         // Handle removed users
-        foreach ($removedUsers as $userId => $ips) {
+        foreach ($removedUsers as $userId) {
             $service->removeNodeDevices($nodeId, $userId);
             $service->notifyUpdate($userId);
         }

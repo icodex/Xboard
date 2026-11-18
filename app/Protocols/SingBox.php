@@ -630,7 +630,7 @@ class SingBox extends AbstractProtocol
 
     protected function buildVmess($uuid, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
+        $protocol_settings = data_get($server, 'protocol_settings', []);
         $array = [
             'tag' => $server['name'],
             'type' => 'vmess',
@@ -641,7 +641,7 @@ class SingBox extends AbstractProtocol
             'alter_id' => 0,
         ];
 
-        if ($protocol_settings['tls']) {
+        if (data_get($protocol_settings, 'tls')) {
             $tlsMode = (int) data_get($protocol_settings, 'tls', 0);
             $tlsConfig = [
                 'enabled' => true,

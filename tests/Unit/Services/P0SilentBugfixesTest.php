@@ -5,8 +5,10 @@ namespace Tests\Unit\Services;
 use App\Jobs\OrderHandleJob;
 use App\Models\Order;
 use App\Models\Plan;
+use App\Models\Server;
 use App\Models\User;
 use App\Services\OrderService;
+use App\Services\ServerService;
 use App\Services\UserService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -41,9 +43,20 @@ class P0SilentBugfixesTest extends TestCase
 
     public function test_expired_at_zero_user_is_available_and_listed_for_nodes(): void
     {
-        $user = $this->makeUser(['expired_at' => 0, 'transfer_enable' => 1073741824]);
+        $user = $this->makeUser(['expired_at' => 0, 'transfer_enable' => 1073741824, 'group_id' => 1]);
         $this->assertTrue((new UserService())->isAvailable($user));
-        $this->assertTrue((new UserService())->getAvailableUsers()->contains('id', $user->id));
+
+        $server = Server::create([
+            'name' => 'p0-node',
+            'type' => Server::TYPE_VMESS,
+            'host' => '127.0.0.1',
+            'port' => 443,
+            'server_port' => 443,
+            'rate' => '1',
+            'group_ids' => [1],
+            'enabled' => true,
+        ]);
+        $this->assertTrue(ServerService::getAvailableUsers($server)->contains('id', $user->id));
     }
 
     public function test_paid_is_idempotent_for_repeat_callbacks(): void

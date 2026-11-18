@@ -36,36 +36,19 @@ class GiftCardController extends Controller
         }
 
         $perPage = $request->input('per_page', 15);
-        $templates = $query->orderBy('sort', 'asc')
+        $templates = $query->withCount(['codes', 'usages'])
+            ->orderBy('sort', 'asc')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
-        $data = $templates->getCollection()->map(function ($template) {
-            return [
-                'id' => $template->id,
-                'name' => $template->name,
-                'description' => $template->description,
-                'type' => $template->type,
-                'type_name' => $template->type_name,
-                'status' => $template->status,
-                'conditions' => $template->conditions,
-                'rewards' => $template->rewards,
-                'limits' => $template->limits,
-                'special_config' => $template->special_config,
-                'icon' => $template->icon,
-                'background_image' => $template->background_image,
-                'theme_color' => $template->theme_color,
-                'sort' => $template->sort,
-                'admin_id' => $template->admin_id,
-                'created_at' => $template->created_at,
-                'updated_at' => $template->updated_at,
-                // 统计信息
-                'codes_count' => $template->codes()->count(),
-                'used_count' => $template->usages()->count(),
-            ];
-        })->values();
+        $templates->getCollection()->transform(function ($template) {
+            $row = $template->toArray();
+            $row['codes_count'] = (int) $template->codes_count;
+            $row['used_count'] = (int) $template->usages_count;
+            return $row;
+        });
 
-        return $this->paginate( $templates);
+        return $this->paginate($templates);
     }
 
     /**
@@ -364,24 +347,13 @@ class GiftCardController extends Controller
         $perPage = $request->input('per_page', 15);
         $codes = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
-        $data = $codes->getCollection()->map(function ($code) {
-            return [
-                'id' => $code->id,
-                'template_id' => $code->template_id,
-                'template_name' => $code->template->name ?? '',
-                'code' => $code->code,
-                'batch_id' => $code->batch_id,
-                'status' => $code->status,
-                'status_name' => $code->status_name,
-                'user_id' => $code->user_id,
-                'user_email' => $code->user ? (substr($code->user->email ?? '', 0, 3) . '***@***') : null,
-                'used_at' => $code->used_at,
-                'expires_at' => $code->expires_at,
-                'usage_count' => $code->usage_count,
-                'max_usage' => $code->max_usage,
-                'created_at' => $code->created_at,
-            ];
-        })->values();
+        $codes->getCollection()->transform(function ($code) {
+            $row = $code->toArray();
+            $row['template_name'] = $code->template->name ?? '';
+            $row['status_name'] = $code->status_name;
+            $row['user_email'] = $code->user ? (substr($code->user->email ?? '', 0, 3) . '***@***') : null;
+            return $row;
+        });
 
         return $this->paginate($codes);
     }

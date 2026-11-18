@@ -233,7 +233,7 @@ class StatController extends Controller
             'user_id' => 'required|integer'
         ]);
 
-        $pageSize = $request->input('pageSize', 10);
+        $pageSize = $this->perPage($request);
         $records = StatUser::orderBy('record_at', 'DESC')
             ->where('user_id', $request->input('user_id'))
             ->paginate($pageSize);
@@ -247,6 +247,18 @@ class StatController extends Controller
 
     public function getStatRecord(Request $request)
     {
+        $validated = $request->validate([
+            'start_at' => 'sometimes|required|integer|min:0|max:2147483647',
+            'end_at' => 'sometimes|required|integer|min:1|max:2147483647',
+        ]);
+        $end = (int) ($validated['end_at'] ?? time());
+        $start = (int) ($validated['start_at'] ?? max(0, $end - 30 * 86400));
+        if ($start >= $end || $end - $start > 366 * 86400) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['start_at' => 'The statistics range must be positive and at most 366 days.']);
+        }
+        $this->service->setStartAt($start);
+        $this->service->setEndAt($end);
+
         return [
             'data' => $this->service->getStatRecord($request->input('type'))
         ];
@@ -335,10 +347,7 @@ class StatController extends Controller
         $totalUsers = User::count();
 
         // Active users (users with valid subscription)
-        $activeUsers = User::where(function ($query) {
-            $query->where('expired_at', '>=', time())
-                ->orWhere('expired_at', NULL);
-        })->count();
+        $activeUsers = User::active()->count();
 
         // Previous month income for growth calculation
         $twoMonthsAgoIncome = Order::where('created_at', '>=', $twoMonthsAgoStart)

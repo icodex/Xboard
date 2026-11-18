@@ -81,16 +81,23 @@ class PaymentService
 
     public function pay($order)
     {
-        // custom notify domain name
-        $notifyUrl = url("/api/v1/guest/payment/notify/{$this->method}/{$this->config['uuid']}");
+        $notifyUrl = trusted_site_url("/api/v1/guest/payment/notify/{$this->method}/{$this->config['uuid']}");
+        if (!$notifyUrl) {
+            throw new ApiException('Site URL is not configured');
+        }
         if ($this->config['notify_domain']) {
             $parseUrl = parse_url($notifyUrl);
             $notifyUrl = $this->config['notify_domain'] . $parseUrl['path'];
         }
 
+        $returnUrl = trusted_site_url('/#/order/' . $order['trade_no']);
+        if (!$returnUrl) {
+            throw new ApiException('Site URL is not configured');
+        }
+
         return $this->payment->pay([
             'notify_url' => $notifyUrl,
-            'return_url' => source_base_url('/#/order/' . $order['trade_no']),
+            'return_url' => $returnUrl,
             'trade_no' => $order['trade_no'],
             'total_amount' => $order['total_amount'],
             'user_id' => $order['user_id'],

@@ -31,7 +31,9 @@ class ServerGroup extends Model
 
     public function servers()
     {
-        return Server::whereJsonContains('group_ids', (string) $this->id)->get();
+        return Server::where(fn ($query) => $query
+            ->whereJsonContains('group_ids', (string) $this->id)
+            ->orWhereJsonContains('group_ids', (int) $this->id))->get();
     }
 
     /**
@@ -40,7 +42,9 @@ class ServerGroup extends Model
     protected function serverCount(): Attribute
     {
         return Attribute::make(
-            get: fn () => Server::whereJsonContains('group_ids', (string) $this->id)->count(),
+            get: fn () => Server::where(fn ($query) => $query
+                ->whereJsonContains('group_ids', (string) $this->id)
+                ->orWhereJsonContains('group_ids', (int) $this->id))->count(),
         );
     }
 }

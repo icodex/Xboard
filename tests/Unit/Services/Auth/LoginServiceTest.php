@@ -66,6 +66,18 @@ class LoginServiceTest extends TestCase
         $this->assertTrue(password_verify('new-password', $user->fresh()->password));
     }
 
+    public function test_reset_password_revokes_existing_tokens(): void
+    {
+        $user = $this->createUser('revoke@example.com', 'old-password');
+        $user->createToken('stale-session', ['*'], now()->addYear());
+        Cache::put(CacheKey::get('EMAIL_VERIFY_CODE', $user->email), 123456, 300);
+
+        [$success] = $this->service->resetPassword($user->email, '123456', 'new-password');
+
+        $this->assertTrue($success);
+        $this->assertSame(0, $user->tokens()->count());
+    }
+
     public function test_forget_password_validation_rejects_boolean_email_code(): void
     {
         $validator = Validator::make([
@@ -80,6 +92,29 @@ class LoginServiceTest extends TestCase
 
         $this->assertTrue($validator->fails());
         $this->assertArrayHasKey('email_code', $validator->errors()->toArray());
+    }
+
+    public function test_quick_login_url_uses_configured_site_not_request_host(): void
+    {
+        $user = $this->createUser('quick-login@example.com', 'old-password');
+        admin_setting(['app_url' => '']);
+        config(['app.url' => 'https://panel.example']);
+        app()->instance('request', \Illuminate\Http\Request::create('https://attacker.example/'));
+
+        $url = $this->service->generateQuickLoginUrl($user);
+
+        $this->assertIsString($url);
+        $this->assertStringStartsWith('https://panel.example/#/login?verify=', $url);
+        $this->assertStringNotContainsString('attacker.example', $url);
+    }
+
+    public function test_quick_login_url_requires_a_site_url(): void
+    {
+        $user = $this->createUser('quick-login-missing@example.com', 'old-password');
+        admin_setting(['app_url' => '']);
+        config(['app.url' => '']);
+
+        $this->assertNull($this->service->generateQuickLoginUrl($user));
     }
 
     private function createUser(string $email, string $password): User

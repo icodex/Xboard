@@ -34,6 +34,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $commission_balance
  * @property int|null $discount_amount
  * @property int|null $paid_at
+ * @property int|null $refunded_at
  * @property string|null $callback_no
  *
  * @property-read Plan $plan

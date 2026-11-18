@@ -11,11 +11,23 @@ use Illuminate\Http\Request;
 
 class TicketController extends Controller
 {
+    /**
+     * filter[].id / sort[].id 会拼进 SQL 列位（值才是绑定的），请求原件不可直接入列，
+     * 否则可用 `... ` 或子查询做盲注。白名单外的字段直接忽略。
+     */
+    private const FILTERABLE_COLUMNS = [
+        'id', 'user_id', 'subject', 'level', 'status', 'reply_status',
+        'last_reply_user_id', 'created_at', 'updated_at',
+    ];
+
     private function applyFiltersAndSorts(Request $request, $builder)
     {
         if ($request->has('filter')) {
             collect($request->input('filter'))->each(function ($filter) use ($builder) {
-                $key = $filter['id'];
+                $key = $filter['id'] ?? null;
+                if (!in_array($key, self::FILTERABLE_COLUMNS, true)) {
+                    return;
+                }
                 $value = $filter['value'];
                 $builder->where(function ($query) use ($key, $value) {
                     if (is_array($value)) {
@@ -29,8 +41,11 @@ class TicketController extends Controller
 
         if ($request->has('sort')) {
             collect($request->input('sort'))->each(function ($sort) use ($builder) {
-                $key = $sort['id'];
-                $value = $sort['desc'] ? 'DESC' : 'ASC';
+                $key = $sort['id'] ?? null;
+                if (!in_array($key, self::FILTERABLE_COLUMNS, true)) {
+                    return;
+                }
+                $value = !empty($sort['desc']) ? 'DESC' : 'ASC';
                 $builder->orderBy($key, $value);
             });
         }
@@ -87,7 +102,7 @@ class TicketController extends Controller
         $tickets = $ticketModel
             ->latest('updated_at')
             ->paginate(
-                perPage: $request->integer('pageSize', 10),
+                perPage: $this->perPage($request),
                 page: $request->integer('current', 1)
             );
 

@@ -75,6 +75,8 @@ class MailService
             })
             ->where('banned', false)
             ->whereNotNull('email')
+            // chunk() 按偏移翻页，没有稳定排序时行位置会漂移，可能漏发或重发
+            ->orderBy('id')
             ->chunk($chunkSize, function ($users) use (&$statistics, $progressCallback) {
                 $this->processUserChunk($users, $statistics);
 
@@ -312,8 +314,9 @@ class MailService
             'subject' => $params['subject'],
             'template_name' => $params['template_name'],
             'error' => $error,
-            'config' => config('mail')
         ];
+        // 不要附带 config('mail')：v2_mail_log 没有该列（fill 会静默丢弃），
+        // 而 sendEmail() 的返回值被管理端 testSendMail 原样回显，凭据会随响应泄露
         MailLog::create($log);
         return $log;
     }

@@ -15,12 +15,12 @@ class CheckTrafficExceeded extends Command
 
     public function handle()
     {
-        $count = (int) Redis::scard('traffic:pending_check');
-        if ($count <= 0) {
+        $rawPending = Redis::smembers('traffic:pending_check');
+        if (!is_array($rawPending) || $rawPending === []) {
             return;
         }
 
-        $pendingUserIds = array_map('intval', Redis::spop('traffic:pending_check', $count));
+        $pendingUserIds = array_map('intval', $rawPending);
 
         $exceededUsers = User::toBase()
             ->whereIn('id', $pendingUserIds)
@@ -31,6 +31,7 @@ class CheckTrafficExceeded extends Command
             ->get();
 
         if ($exceededUsers->isEmpty()) {
+            Redis::srem('traffic:pending_check', ...$pendingUserIds);
             return;
         }
 
@@ -43,7 +44,9 @@ class CheckTrafficExceeded extends Command
             }
 
             $userIdsInGroup = $users->pluck('id')->toArray();
-            $servers = Server::whereJsonContains('group_ids', (string) $groupId)->get();
+            $servers = Server::where(fn ($query) => $query
+                ->whereJsonContains('group_ids', (string) $groupId)
+                ->orWhereJsonContains('group_ids', (int) $groupId))->get();
 
             foreach ($servers as $server) {
                 if (!NodeSyncService::isNodeOnline($server->id)) {
@@ -57,6 +60,9 @@ class CheckTrafficExceeded extends Command
                 $notifiedCount++;
             }
         }
+
+        // Only claim the IDs after processing; a crash must leave them for the next run.
+        Redis::srem('traffic:pending_check', ...$pendingUserIds);
 
         $this->info("Checked " . count($pendingUserIds) . " users, notified {$notifiedCount} nodes for " . $exceededUsers->count() . " exceeded users.");
     }

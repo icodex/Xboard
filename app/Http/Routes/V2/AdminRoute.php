@@ -14,6 +14,7 @@ use App\Http\Controllers\V2\Admin\StatController;
 use App\Http\Controllers\V2\Admin\NoticeController;
 use App\Http\Controllers\V2\Admin\TicketController;
 use App\Http\Controllers\V2\Admin\CouponController;
+use App\Http\Controllers\V2\Admin\CommissionWithdrawController;
 use App\Http\Controllers\V2\Admin\GiftCardController;
 use App\Http\Controllers\V2\Admin\KnowledgeController;
 use App\Http\Controllers\V2\Admin\PaymentController;
@@ -119,7 +120,17 @@ class AdminRoute
                 $router->post('/assign', [OrderController::class, 'assign']);
                 $router->post('/paid', [OrderController::class, 'paid']);
                 $router->post('/cancel', [OrderController::class, 'cancel']);
+                $router->post('/reconcile', [OrderController::class, 'reconcile']);
                 $router->post('/detail', [OrderController::class, 'detail']);
+            });
+
+            // Commission withdrawals
+            $router->group([
+                'prefix' => 'commission/withdraw'
+            ], function ($router) {
+                $router->get('/fetch', [CommissionWithdrawController::class, 'fetch']);
+                $router->post('/approve', [CommissionWithdrawController::class, 'approve']);
+                $router->post('/reject', [CommissionWithdrawController::class, 'reject']);
             });
 
             // User
@@ -148,7 +159,6 @@ class AdminRoute
                 $router->get('/getServerYesterdayRank', [StatController::class, 'getServerYesterdayRank']);
                 $router->get('/getOrder', [StatController::class, 'getOrder']);
                 $router->any('/getStatUser', [StatController::class, 'getStatUser']);
-                $router->get('/getRanking', [StatController::class, 'getRanking']);
                 $router->get('/getStatRecord', [StatController::class, 'getStatRecord']);
                 $router->get('/getTrafficRank', [StatController::class, 'getTrafficRank']);
             });

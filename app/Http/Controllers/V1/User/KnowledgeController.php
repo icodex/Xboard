@@ -78,9 +78,13 @@ class KnowledgeController extends Controller
 
         $keyword = $request->input('keyword');
         if ($keyword) {
-            $builder = $builder->where(function ($query) use ($keyword) {
-                $query->where('title', 'LIKE', "%{$keyword}%")
-                    ->orWhere('body', 'LIKE', "%{$keyword}%");
+            // 用户输入的 % 和 _ 是 LIKE 通配符，不转义就成了「匹配全部」。
+            // 转义符用 ! 而不是反斜杠：MySQL 默认转义符是 \，SQLite 没有默认值，
+            // 只有显式 ESCAPE 才能三家（MySQL/SQLite/PG）行为一致。
+            $pattern = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $keyword) . '%';
+            $builder = $builder->where(function ($query) use ($pattern) {
+                $query->whereRaw("title LIKE ? ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("body LIKE ? ESCAPE '!'", [$pattern]);
             });
         }
 

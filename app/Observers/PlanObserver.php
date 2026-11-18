@@ -8,27 +8,29 @@ use App\Services\TrafficResetService;
 
 class PlanObserver
 {
+    public bool $afterCommit = true;
+
     /**
      * reset user  next_reset_at
      */
     public function updated(Plan $plan): void
     {
-        if (!$plan->isDirty('reset_traffic_method')) {
+        if (!$plan->wasChanged('reset_traffic_method')) {
             return;
         }
         $trafficResetService = app(TrafficResetService::class);
         User::where('plan_id', $plan->id)
-            ->where('banned', 0)
-            ->where(function ($query) {
-                $query->where('expired_at', '>', time())
-                    ->orWhereNull('expired_at');
-            })
-            ->lazyById(500)
-            ->each(function (User $user) use ($trafficResetService) {
-                $nextResetTime = $trafficResetService->calculateNextResetTime($user);
-                $user->update([
-                    'next_reset_at' => $nextResetTime?->timestamp,
-                ]);
+            ->chunkById(500, function ($users) use ($trafficResetService, $plan) {
+                foreach ($users as $user) {
+                    \Illuminate\Support\Facades\DB::transaction(function () use ($user, $plan, $trafficResetService) {
+                        $locked = User::whereKey($user->id)->lockForUpdate()->first();
+                        if (!$locked || $locked->plan_id !== $plan->id) {
+                            return;
+                        }
+                        $nextResetTime = $trafficResetService->calculateNextResetTime($locked);
+                        $locked->update(['next_reset_at' => $nextResetTime?->timestamp]);
+                    });
+                }
             });
     }
 }

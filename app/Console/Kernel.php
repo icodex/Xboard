@@ -35,6 +35,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('check:commission')->everyMinute()->onOneServer()->withoutOverlapping(5);
         $schedule->command('check:ticket')->everyMinute()->onOneServer()->withoutOverlapping(5);
         $schedule->command('check:traffic-exceeded')->everyMinute()->onOneServer()->withoutOverlapping(10)->runInBackground();
+        $schedule->call(fn () => \App\Services\NodeSyncService::reconcileAll())
+            ->name('node-user-reconciliation')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
         // reset
         $schedule->command('reset:traffic')->everyMinute()->onOneServer()->withoutOverlapping(10);
         $schedule->command('reset:log')->daily()->onOneServer();
@@ -44,6 +46,9 @@ class Kernel extends ConsoleKernel
         $schedule->command('horizon:snapshot')->everyFiveMinutes()->onOneServer();
         // cleanup stale online_count (GC for Redis TTL expiration)
         $schedule->command('cleanup:online-status')->everyFiveMinutes()->onOneServer();
+        $schedule->command('cleanup:audit-log')->dailyAt('03:20')->onOneServer();
+        // 每次登录都新建一个 token（有效期一年），过期行不清理会一直堆在会话列表里
+        $schedule->command('sanctum:prune-expired --hours=24')->daily()->onOneServer();
         // backup Timing
         // if (env('ENABLE_AUTO_BACKUP_AND_UPDATE', false)) {
         //     $schedule->command('backup:database', ['true'])->daily()->onOneServer();

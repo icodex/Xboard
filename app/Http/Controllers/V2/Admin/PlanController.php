@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\PlanSave;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Models\User;
+use App\Services\NodeSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -22,10 +23,7 @@ class PlanController extends Controller
             ->withCount([
                 'users',
                 'users as active_users_count' => function ($query) {
-                    $query->where(function ($q) {
-                        $q->where('expired_at', '>', time())
-                          ->orWhereNull('expired_at');
-                    });
+                    $query->active();
                 }
             ])
             ->get();
@@ -52,6 +50,7 @@ class PlanController extends Controller
                         'speed_limit' => $params['speed_limit'],
                         'device_limit' => $params['device_limit'],
                     ]);
+                    DB::afterCommit(fn () => NodeSyncService::reconcileAll());
                 }
                 $plan->update($params);
                 DB::commit();

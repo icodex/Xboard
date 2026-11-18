@@ -27,6 +27,12 @@ class UserController extends Controller
 {
     use QueryOperators;
 
+    private const SORTABLE_COLUMNS = [
+        'id', 'email', 'plan_id', 'group_id', 'invite_user_id', 'transfer_enable',
+        'u', 'd', 'expired_at', 'banned', 'is_admin', 'is_staff', 'speed_limit',
+        'device_limit', 'balance', 'commission_balance', 'created_at',
+    ];
+
     public function resetSecret(Request $request)
     {
         $user = User::find($request->input('id'));
@@ -70,8 +76,19 @@ class UserController extends Controller
             return;
         }
 
-        collect($request->input('filter'))->each(function ($filter) use ($builder) {
-            $field = $filter['id'];
+        $filters = $request->input('filter');
+        if (!is_array($filters)) {
+            return;
+        }
+
+        collect($filters)->each(function ($filter) use ($builder) {
+            if (!is_array($filter)) {
+                return;
+            }
+            $field = $filter['id'] ?? null;
+            if (!is_string($field)) {
+                return;
+            }
             $value = $filter['value'];
             $logic = strtolower($filter['logic'] ?? 'and');
 
@@ -96,6 +113,16 @@ class UserController extends Controller
                 return;
             }
             [$relation, $relationField] = explode('.', $field);
+            // 与平面筛选同一份白名单：关联列只放行列表页实际用到的字段，
+            // 否则可借 like 逐字符探测关联行里的 password 等隐藏列
+            $allowedRelationFields = [
+                'invite_user' => ['id', 'email'],
+                'plan' => ['id', 'name'],
+                'group' => ['id', 'name'],
+            ];
+            if (!in_array($relationField, $allowedRelationFields[$relation] ?? [], true)) {
+                return;
+            }
             $query->whereHas($relation, function ($q) use ($relationField, $value) {
                 if (is_array($value)) {
                     $values = $relationField === 'email'
@@ -167,23 +194,45 @@ class UserController extends Controller
             return;
         }
 
-        collect($request->input('sort'))->each(function ($sort) use ($builder) {
-            $field = $sort['id'];
-            $direction = $sort['desc'] ? 'DESC' : 'ASC';
+        $sorts = $request->input('sort');
+        if (!is_array($sorts)) {
+            return;
+        }
+
+        collect($sorts)->each(function ($sort) use ($builder) {
+            if (!is_array($sort)) {
+                return;
+            }
+            $field = $sort['id'] ?? null;
+            $direction = !empty($sort['desc']) ? 'DESC' : 'ASC';
             // 与筛选同一份列白名单：白名单外不排序；total_used 无实体列，排序走同款表达式
             if ($field === 'total_used') {
                 $builder->orderBy(DB::raw('(u + d)'), $direction);
                 return;
             }
-            if (!in_array($field, [
-                'id', 'email', 'plan_id', 'group_id', 'invite_user_id', 'transfer_enable',
-                'u', 'd', 'expired_at', 'banned', 'is_admin', 'is_staff', 'speed_limit',
-                'device_limit', 'balance', 'commission_balance', 'created_at',
-            ], true)) {
+            if (!in_array($field, self::SORTABLE_COLUMNS, true)) {
                 return;
             }
             $builder->orderBy($field, $direction);
         });
+    }
+
+    // Apply the scalar sort used by bulk user actions. The column reaches SQL
+    // directly, so it must be whitelisted just like filter[].id / sort[].id.
+    private function applyBulkSort(Request $request, Builder|QueryBuilder $builder): void
+    {
+        $sortInput = $request->input('sort');
+        $sort = is_string($sortInput) && $sortInput !== '' ? $sortInput : 'created_at';
+        $direction = in_array($request->input('sort_type'), ['ASC', 'DESC'], true)
+            ? $request->input('sort_type')
+            : 'DESC';
+
+        if ($sort === 'total_used') {
+            $builder->orderBy(DB::raw('(u + d)'), $direction);
+            return;
+        }
+
+        $builder->orderBy(in_array($sort, self::SORTABLE_COLUMNS, true) ? $sort : 'created_at', $direction);
     }
 
     // Resolve bulk operation scope and normalize user_ids.
@@ -224,7 +273,8 @@ class UserController extends Controller
     public function fetch(Request $request)
     {
         $current = $request->input('current', 1);
-        $pageSize = $request->input('pageSize', 10);
+        // 上限兜底：pageSize 不设上限时一次请求就能把全部用户连三个关联读进内存
+        $pageSize = min(max((int) $request->input('pageSize', 10), 1), 200);
 
         $userModel = User::query()
             ->with(['plan:id,name', 'invite_user:id,email', 'group:id,name'])
@@ -301,7 +351,8 @@ class UserController extends Controller
             }
         }
         // 处理密码
-        if (isset($params['password'])) {
+        $passwordChanged = isset($params['password']);
+        if ($passwordChanged) {
             $params['password'] = password_hash($params['password'], PASSWORD_DEFAULT);
             $params['password_algo'] = NULL;
         } else {
@@ -316,10 +367,22 @@ class UserController extends Controller
             $params['group_id'] = $plan->group_id;
         }
         // 处理邀请用户
-        if ($request->input('invite_user_email') && $inviteUser = User::byEmail($request->input('invite_user_email'))->first()) {
-            $params['invite_user_id'] = $inviteUser->id;
-        } else {
-            $params['invite_user_id'] = null;
+        if ($request->exists('invite_user_email')) {
+            $email = $request->input('invite_user_email');
+            if ($email === null || $email === '') {
+                $params['invite_user_id'] = null;
+            } elseif (!is_string($email) || !($inviteUser = User::byEmail($email)->first()) || $inviteUser->id === $user->id) {
+                return $this->fail([422, '邀请用户不存在或无效']);
+            } else {
+                $visited = [$user->id];
+                for ($cursor = $inviteUser; $cursor; $cursor = $cursor->invite_user_id ? User::find($cursor->invite_user_id) : null) {
+                    if (in_array($cursor->id, $visited, true)) {
+                        return $this->fail([422, '邀请关系不能形成循环']);
+                    }
+                    $visited[] = $cursor->id;
+                }
+                $params['invite_user_id'] = $inviteUser->id;
+            }
         }
 
         if (isset($params['banned']) && (int) $params['banned'] === 1) {
@@ -343,6 +406,9 @@ class UserController extends Controller
 
         try {
             $user->update($params);
+            if ($passwordChanged) {
+                $user->tokens()->delete();
+            }
         } catch (\Exception $e) {
             Log::error($e);
             return $this->fail([500, '保存失败']);
@@ -624,16 +690,13 @@ class UserController extends Controller
             }
         }
 
-        $sortType = in_array($request->input('sort_type'), ['ASC', 'DESC']) ? $request->input('sort_type') : 'DESC';
-        $sort = $request->input('sort') ? $request->input('sort') : 'created_at';
-
         $builder = User::query()
             ->with('plan:id,name')
             ->orderBy('id', 'desc');
 
         if ($scope === 'filtered') {
             // filtered: apply filters/sort
-            $builder->orderBy($sort, $sortType);
+            $this->applyBulkSort($request, $builder);
             $this->applyFiltersAndSorts($request, $builder);
         } elseif ($scope === 'selected') {
             $builder->whereIn('id', $userIds);
@@ -694,14 +757,11 @@ class UserController extends Controller
             }
         }
 
-        $sortType = in_array($request->input('sort_type'), ['ASC', 'DESC']) ? $request->input('sort_type') : 'DESC';
-        $sort = $request->input('sort') ? $request->input('sort') : 'created_at';
-
         $builder = User::query()->orderBy('id', 'desc');
 
         if ($scope === 'filtered') {
             // filtered: keep current semantics
-            $builder->orderBy($sort, $sortType);
+            $this->applyBulkSort($request, $builder);
             $this->applyFiltersAndSorts($request, $builder);
         } elseif ($scope === 'selected') {
             $builder->whereIn('id', $userIds);
@@ -711,6 +771,7 @@ class UserController extends Controller
             DB::transaction(function () use ($builder): void {
                 $ids = (clone $builder)->reorder()->lockForUpdate()->pluck('id');
                 $builder->update(['banned' => 1]);
+                DB::afterCommit(fn () => NodeSyncService::reconcileAll());
                 foreach ($ids->chunk(500) as $chunk) {
                     \Laravel\Sanctum\PersonalAccessToken::where('tokenable_type', (new User())->getMorphClass())
                         ->whereIn('tokenable_id', $chunk)->delete();
@@ -720,7 +781,6 @@ class UserController extends Controller
             Log::error($e);
             return $this->fail([500, '处理失败']);
         }
-        // Full refresh not implemented.
         return $this->success(true);
     }
 

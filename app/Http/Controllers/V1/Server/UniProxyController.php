@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1\Server;
 use App\Http\Controllers\Controller;
 use App\Services\DeviceStateService;
 use App\Services\ServerService;
+use App\Utils\CacheKey;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\JsonResponse;
@@ -28,14 +29,22 @@ class UniProxyController extends Controller
 
         ServerService::touchNode($node);
 
-        $response['users'] = ServerService::getAvailableUsers($node);
+        $version = (string) (Cache::get(CacheKey::get('SERVER_USERS_VERSION')) ?? '0');
+        $cacheKey = CacheKey::get('SERVER_USERS_PAYLOAD', $node->id . '_' . $version);
 
-        $eTag = sha1(json_encode($response));
+        $payload = Cache::get($cacheKey);
+        if (!is_string($payload)) {
+            $payload = json_encode(['users' => ServerService::getAvailableUsers($node)]);
+            Cache::put($cacheKey, $payload, 60);
+        }
+
+        $eTag = sha1($payload);
         if (str_contains($request->header('If-None-Match', ''), $eTag)) {
             return response(null, 304);
         }
 
-        return response($response)->header('ETag', "\"{$eTag}\"");
+        return response($payload, 200, ['Content-Type' => 'application/json'])
+            ->header('ETag', "\"{$eTag}\"");
     }
 
     public function push(Request $request)

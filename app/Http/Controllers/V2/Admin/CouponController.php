@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\V2\Admin;
 
-use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CouponGenerate;
 use App\Http\Requests\Admin\CouponSave;
@@ -13,11 +12,24 @@ use Illuminate\Support\Facades\DB;
 
 class CouponController extends Controller
 {
+    /**
+     * filter[].id / sort[].id 会拼进 SQL 列位（值才是绑定的），请求原件不可直接入列，
+     * 否则可用 `... ` 或子查询做盲注。白名单外的字段直接忽略。
+     */
+    private const FILTERABLE_COLUMNS = [
+        'id', 'code', 'name', 'type', 'value', 'show', 'limit_use',
+        'limit_use_with_user', 'limit_plan_ids', 'limit_period',
+        'started_at', 'ended_at', 'created_at', 'updated_at',
+    ];
+
     private function applyFiltersAndSorts(Request $request, $builder)
     {
         if ($request->has('filter')) {
             collect($request->input('filter'))->each(function ($filter) use ($builder) {
-                $key = $filter['id'];
+                $key = $filter['id'] ?? null;
+                if (!in_array($key, self::FILTERABLE_COLUMNS, true)) {
+                    return;
+                }
                 $value = $filter['value'];
                 $builder->where(function ($query) use ($key, $value) {
                     if (is_array($value)) {
@@ -31,8 +43,11 @@ class CouponController extends Controller
 
         if ($request->has('sort')) {
             collect($request->input('sort'))->each(function ($sort) use ($builder) {
-                $key = $sort['id'];
-                $value = $sort['desc'] ? 'DESC' : 'ASC';
+                $key = $sort['id'] ?? null;
+                if (!in_array($key, self::FILTERABLE_COLUMNS, true)) {
+                    return;
+                }
+                $value = !empty($sort['desc']) ? 'DESC' : 'ASC';
                 $builder->orderBy($key, $value);
             });
         }
@@ -40,7 +55,7 @@ class CouponController extends Controller
     public function fetch(Request $request)
     {
         $current = $request->input('current', 1);
-        $pageSize = $request->input('pageSize', 10);
+        $pageSize = $this->perPage($request);
         $builder = Coupon::query();
         $this->applyFiltersAndSorts($request, $builder);
         $coupons = $builder
@@ -58,18 +73,19 @@ class CouponController extends Controller
             'id.required' => '优惠券ID不能为空',
             'id.numeric' => '优惠券ID必须为数字'
         ]);
+        $coupon = Coupon::find($request->input('id'));
+        if (!$coupon) {
+            return $this->fail([400201, '优惠券不存在']);
+        }
+
         try {
-            DB::beginTransaction();
-            $coupon = Coupon::find($request->input('id'));
-            if (!$coupon) {
-                throw new ApiException(400201, '优惠券不存在');
-            }
             $coupon->update($params);
-            DB::commit();
         } catch (\Exception $e) {
             \Log::error($e);
             return $this->fail([500, '保存失败']);
         }
+
+        return $this->success(true);
     }
 
     public function show(Request $request)
@@ -107,8 +123,12 @@ class CouponController extends Controller
                 return $this->fail([500, '创建失败']);
             }
         } else {
+            $coupon = Coupon::find($request->input('id'));
+            if (!$coupon) {
+                return $this->fail([400201, '优惠券不存在']);
+            }
             try {
-                Coupon::find($request->input('id'))->update($params);
+                $coupon->update($params);
             } catch (\Exception $e) {
                 \Log::error($e);
                 return $this->fail([500, '保存失败']);

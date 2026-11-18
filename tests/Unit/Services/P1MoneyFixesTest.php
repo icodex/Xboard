@@ -48,6 +48,77 @@ class P1MoneyFixesTest extends TestCase
         $this->assertSame(1, Coupon::findOrFail($coupon->id)->limit_use);
     }
 
+    public function test_stacked_discounts_cannot_exceed_price(): void
+    {
+        $user = $this->makeUser(['discount' => 50]);
+        Coupon::create([
+            'name' => 'stacked', 'code' => 'STACKED', 'type' => 1, 'value' => 350, 'show' => true,
+            'limit_use' => 1, 'started_at' => time() - 3600, 'ended_at' => time() + 3600,
+        ]);
+        $order = OrderService::createFromRequest($user, $this->makePlan(), Plan::PERIOD_MONTHLY, 'STACKED');
+        $this->assertSame(0, (int) $order->total_amount);
+        $this->assertSame(410, (int) $order->discount_amount);
+    }
+
+    public function test_unpaid_order_reserves_capacity_until_cancelled(): void
+    {
+        $plan = $this->makePlan(['capacity_limit' => 1]);
+        $first = $this->makeUser();
+        $second = $this->makeUser(['email' => 'second@example.com', 'uuid' => '00000000-0000-0000-0000-000000000004', 'token' => 'second-token']);
+        $order = OrderService::createFromRequest($first, $plan, Plan::PERIOD_MONTHLY);
+        $this->assertFalse((new \App\Services\PlanService($plan))->hasCapacity($plan));
+        try {
+            OrderService::createFromRequest($second, $plan, Plan::PERIOD_MONTHLY);
+            $this->fail('A reserved capacity slot cannot be sold again');
+        } catch (\App\Exceptions\ApiException $e) {
+            $this->assertTrue((new OrderService($order))->cancel());
+        }
+        $this->assertNotNull(OrderService::createFromRequest($second, $plan, Plan::PERIOD_MONTHLY)->id);
+    }
+
+    public function test_unsold_plan_rejects_new_purchase_but_allows_active_renewal(): void
+    {
+        $plan = $this->makePlan(['sell' => 0, 'capacity_limit' => 1]);
+        $user = $this->makeUser();
+        try {
+            OrderService::createFromRequest($user, $plan, Plan::PERIOD_MONTHLY);
+            $this->fail('An unsold plan cannot be purchased');
+        } catch (\App\Exceptions\ApiException $e) {
+            $user->update(['plan_id' => $plan->id, 'expired_at' => 0]);
+        }
+        $order = OrderService::createFromRequest($user->fresh(), $plan, Plan::PERIOD_MONTHLY);
+        $this->assertSame(Order::TYPE_RENEWAL, $order->type);
+        $this->assertFalse((new \App\Services\PlanService($plan))->hasCapacity($plan));
+    }
+
+    public function test_zero_expiry_switch_is_an_upgrade(): void
+    {
+        $oldPlan = $this->makePlan();
+        $user = $this->makeUser(['plan_id' => $oldPlan->id, 'expired_at' => 0]);
+        $order = OrderService::createFromRequest($user, $this->makePlan(), Plan::PERIOD_MONTHLY);
+        $this->assertSame(Order::TYPE_UPGRADE, $order->type);
+    }
+
+    public function test_failed_reset_rolls_back_fulfillment_and_can_retry(): void
+    {
+        $user = $this->makeUser(['u' => 100]);
+        $order = $this->makeOrder($user, $this->makePlan(), ['status' => Order::STATUS_PROCESSING]);
+        $reset = \Mockery::mock(\App\Services\TrafficResetService::class);
+        $reset->shouldReceive('performReset')->once()->andReturn(false);
+        $this->app->instance(\App\Services\TrafficResetService::class, $reset);
+        try {
+            (new OrderService($order))->open();
+            $this->fail('Reset failure must abort fulfillment');
+        } catch (\RuntimeException $e) {
+            $this->assertSame(Order::STATUS_PROCESSING, $order->fresh()->status);
+            $this->assertSame(100, (int) $user->fresh()->u);
+        }
+        $this->app->forgetInstance(\App\Services\TrafficResetService::class);
+        (new OrderService($order))->open();
+        $this->assertSame(Order::STATUS_COMPLETED, $order->fresh()->status);
+        $this->assertSame(0, (int) $user->fresh()->u);
+    }
+
     private function makeUser(array $overrides = []): User
     {
         return User::create(array_merge([

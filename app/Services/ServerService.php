@@ -54,7 +54,13 @@ class ServerService
      */
     public static function getAvailableServers(User $user): array
     {
-        $servers = Server::whereJsonContains('group_ids', (string) $user->group_id)
+        if (!$user->group_id) {
+            return [];
+        }
+
+        $servers = Server::where(fn ($query) => $query
+            ->whereJsonContains('group_ids', (string) $user->group_id)
+            ->orWhereJsonContains('group_ids', (int) $user->group_id))
             ->where('show', true)
             ->where(function ($query) {
                 $query->whereNull('transfer_enable')
@@ -120,15 +126,10 @@ class ServerService
         if (empty($groupIds)) {
             return collect();
         }
-        $users = User::toBase()
+        $users = User::query()
+            ->active()
             ->whereIn('group_id', $groupIds)
             ->whereRaw('u + d < transfer_enable')
-            ->where(function ($query) {
-                $query->where('expired_at', '>=', time())
-                    ->orWhere('expired_at', NULL)
-                    // v2board legacy: 0 means never expires
-                    ->orWhere('expired_at', 0);
-            })
             ->where('banned', 0)
             ->select([
                 'id',
@@ -136,6 +137,8 @@ class ServerService
                 'speed_limit',
                 'device_limit'
             ])
+            ->orderBy('id')
+            ->toBase()
             ->get();
         return HookManager::filter('server.users.get', $users, $node);
     }
@@ -164,7 +167,7 @@ class ServerService
         $nodeType = strtoupper($node->type);
         $nodeId = $node->id;
 
-        Cache::put(CacheKey::get("SERVER_{$nodeType}_ONLINE_USER", $nodeId), count($data), 3600);
+        Cache::put(CacheKey::get("SERVER_{$nodeType}_ACTIVE_USER", $nodeId), count($data), 3600);
         Cache::put(CacheKey::get("SERVER_{$nodeType}_LAST_PUSH_AT", $nodeId), time(), 3600);
 
         (new UserService())->trafficFetch($node, $node->type, $data);

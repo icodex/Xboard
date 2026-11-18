@@ -27,10 +27,10 @@ class PaymentController extends Controller
     {
         $payments = Payment::orderBy('sort', 'ASC')->get()->makeVisible('config');
         foreach ($payments as $k => $v) {
-            $notifyUrl = url("/api/v1/guest/payment/notify/{$v->payment}/{$v->uuid}");
-            if ($v->notify_domain) {
+            $notifyUrl = trusted_site_url("/api/v1/guest/payment/notify/{$v->payment}/{$v->uuid}") ?? '';
+            if ($v->notify_domain && $notifyUrl) {
                 $parseUrl = parse_url($notifyUrl);
-                $notifyUrl = $v->notify_domain . $parseUrl['path'];
+                $notifyUrl = $v->notify_domain . ($parseUrl['path'] ?? '');
             }
             $payments[$k]['notify_url'] = $notifyUrl;
         }

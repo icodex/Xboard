@@ -24,7 +24,8 @@ services:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes: &shared-volumes
       - ./.env:/www/.env
       - ./.docker/.data/:/www/.docker/.data
@@ -36,24 +37,32 @@ services:
       ENABLE_CADDY: "false"
       ENABLE_HORIZON: "false"
       ENABLE_WS_SERVER: "false"
+      ENABLE_REDIS: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
 
   horizon:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes: *shared-volumes
     environment:
       docker: "true"
       ENABLE_CADDY: "false"
       ENABLE_WEB: "false"
       ENABLE_WS_SERVER: "false"
+      ENABLE_REDIS: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
 
   ws-server:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes: *shared-volumes
     environment:
       docker: "true"
@@ -61,11 +70,19 @@ services:
       ENABLE_WEB: "false"
       ENABLE_HORIZON: "false"
       WS_HOST: "0.0.0.0"
+      ENABLE_REDIS: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
-    command: redis-server --unixsocket /data/redis.sock --unixsocketperm 777 --save 900 1 --save 300 10 --save 60 10000
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
     volumes:
       - redis-data:/data
 

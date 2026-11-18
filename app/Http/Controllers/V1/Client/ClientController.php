@@ -52,7 +52,7 @@ class ClientController extends Controller
         // fingerprints are stable per user+node (seeded in AbstractProtocol), so the
         // body is identical across polls and the etag can match
         $response->setEtag(md5($response->getContent()));
-        $response->headers->set('Cache-Control', 'public, max-age=300');
+        $response->headers->set('Cache-Control', 'private, max-age=300');
         $response->isNotModified($request);
         return $response;
     }

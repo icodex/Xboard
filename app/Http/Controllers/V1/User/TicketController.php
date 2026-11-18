@@ -22,8 +22,7 @@ class TicketController extends Controller
         if ($request->input('id')) {
             $ticket = Ticket::where('id', $request->input('id'))
                 ->where('user_id', $request->user()->id)
-                ->first()
-                ->load('message');
+                ->first();
             if (!$ticket) {
                 return $this->fail([400, __('Ticket does not exist')]);
             }
@@ -127,28 +126,21 @@ class TicketController extends Controller
             return $this->fail([422, __('Unsupported withdrawal method')]);
         }
         $user = User::find($request->user()->id);
-        $limit = admin_setting('commission_withdraw_limit', 100);
-        if ($limit > ($user->commission_balance / 100)) {
-            return $this->fail([422, __('The current required minimum withdrawal commission is :limit', ['limit' => $limit])]);
-        }
+
         try {
-            $ticketService = new TicketService();
-            $subject = __('[Commission Withdrawal Request] This ticket is opened by the system');
-            $message = sprintf(
-                "%s\r\n%s",
-                __('Withdrawal method') . "：" . $request->input('withdraw_method'),
-                __('Withdrawal account') . "：" . $request->input('withdraw_account')
+            $withdraw = app(\App\Services\CommissionWithdrawService::class)->request(
+                $user,
+                (string) $request->input('withdraw_method'),
+                (string) $request->input('withdraw_account'),
+                $request->filled('amount') ? (float) $request->input('amount') : null
             );
-            $ticket = $ticketService->createTicket(
-                $request->user()->id,
-                $subject,
-                2,
-                $message
-            );
-        } catch (\Exception $e) {
+        } catch (\App\Exceptions\ApiException $e) {
+            return $this->fail([422, $e->getMessage()]);
+        } catch (\Throwable $e) {
             throw $e;
         }
-        HookManager::call('ticket.create.after', $ticket);
+
+        HookManager::call('ticket.create.after', $withdraw->ticket);
         return $this->success(true);
     }
 }

@@ -141,7 +141,7 @@ class ThemeController extends Controller
     {
         $payload = $request->validate([
             'name' => 'required',
-            'config' => 'required'
+            'config' => 'required|array'
         ]);
         $this->themeService->updateConfig($payload['name'], $payload['config']);
         $config = $this->themeService->getConfig($payload['name']);

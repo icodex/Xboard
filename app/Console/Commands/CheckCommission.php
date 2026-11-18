@@ -60,27 +60,29 @@ class CheckCommission extends Command
 
     public function autoPayCommission()
     {
-        $orders = Order::where('commission_status', 1)
+        // 分块处理：一次性 get() 会在订单量大时把整批订单模型读进内存
+        Order::where('commission_status', 1)
             ->where('invite_user_id', '!=', NULL)
-            ->get();
-        foreach ($orders as $order) {
-            try{
-                DB::beginTransaction();
-                if (!$this->payHandle($order->invite_user_id, $order)) {
-                    DB::rollBack();
-                    continue;
+            ->chunkById(500, function ($orders) {
+                foreach ($orders as $order) {
+                    try {
+                        DB::beginTransaction();
+                        if (!$this->payHandle($order->invite_user_id, $order)) {
+                            DB::rollBack();
+                            continue;
+                        }
+                        $order->commission_status = 2;
+                        if (!$order->save()) {
+                            DB::rollBack();
+                            continue;
+                        }
+                        DB::commit();
+                    } catch (\Exception $e) {
+                        DB::rollBack();
+                        throw $e;
+                    }
                 }
-                $order->commission_status = 2;
-                if (!$order->save()) {
-                    DB::rollBack();
-                    continue;
-                }
-                DB::commit();
-            } catch (\Exception $e){
-                DB::rollBack();
-                throw $e;
-            }
-        }
+            });
     }
 
     public function payHandle($inviteUserId, Order $order)
@@ -99,7 +101,8 @@ class CheckCommission extends Command
         }
         for ($l = 0; $l < $level; $l++) {
             $inviter = User::find($inviteUserId);
-            if (!$inviter) continue;
+            // 邀请链断了就没必要继续往上找：下面每层用的还是同一个 id
+            if (!$inviter) break;
             if (!isset($commissionShareLevels[$l])) continue;
             $commissionBalance = (int) round($order->commission_balance * ($commissionShareLevels[$l] / 100));
             if (!$commissionBalance) continue;
@@ -107,9 +110,6 @@ class CheckCommission extends Command
                 $inviter->increment('balance', $commissionBalance);
             } else {
                 $inviter->increment('commission_balance', $commissionBalance);
-            }
-            if (!$inviter->save()) {
-                return false;
             }
             CommissionLog::create([
                 'invite_user_id' => $inviteUserId,

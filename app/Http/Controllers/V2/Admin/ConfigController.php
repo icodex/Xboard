@@ -8,6 +8,11 @@ use App\Models\SubscribeTemplate;
 use App\Services\MailService;
 use App\Services\TelegramService;
 use App\Services\ThemeService;
+use App\Models\Plan;
+use App\Models\Setting;
+use App\Services\TrafficResetService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use App\Utils\Dict;
 use Illuminate\Http\Request;
 
@@ -230,7 +235,32 @@ class ConfigController extends Controller
                 $themeService = app(ThemeService::class);
                 $themeService->switch($v);
             }
-            admin_setting([$k => $v]);
+            if ($k !== 'reset_traffic_method') {
+                admin_setting([$k => $v]);
+                continue;
+            }
+
+            DB::table('v2_settings')->insertOrIgnore([
+                'name' => 'reset_traffic_policy_pending', 'value' => '',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $changed = DB::transaction(function () use ($k, $v) {
+                $pending = Setting::where('name', 'reset_traffic_policy_pending')->lockForUpdate()->firstOrFail();
+                $old = (int) (Setting::where('name', $k)->value('value') ?? config('v2board.reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY));
+                if ((int) $v === $old) {
+                    return false;
+                }
+                Setting::createOrUpdate($k, $v);
+                $pending->update(['value' => bin2hex(random_bytes(16))]);
+                return true;
+            });
+            if ($changed) {
+                DB::afterCommit(function () {
+                    Cache::store('redis')->forget(\App\Support\Setting::CACHE_KEY);
+                    app()->forgetInstance(\App\Support\Setting::class);
+                    app(TrafficResetService::class)->recalculatePendingSystemPolicy();
+                });
+            }
         }
 
         return $this->success(true);

@@ -33,7 +33,7 @@ class TrafficResetController extends Controller
       'trigger_source' => 'nullable|string|in:' . implode(',', array_keys(TrafficResetLog::getSourceNames())),
       'start_date' => 'nullable|date',
       'end_date' => 'nullable|date|after_or_equal:start_date',
-      'per_page' => 'nullable|integer|min:1|max:10000',
+      'per_page' => 'nullable|integer|min:1|max:500',
       'page' => 'nullable|integer|min:1',
     ]);
 
@@ -68,7 +68,7 @@ class TrafficResetController extends Controller
       $query->where('reset_time', '<=', $request->end_date . ' 23:59:59');
     }
 
-    $perPage = $request->get('per_page', 20);
+    $perPage = $this->perPage($request, 20, 500);
     $logs = $query->paginate($perPage);
 
     // 格式化数据
@@ -158,10 +158,9 @@ class TrafficResetController extends Controller
             ], 400);
         }
 
-    $metadata = [];
+    $metadata = ['admin_id' => auth()->user()?->id];
     if ($request->filled('reason')) {
       $metadata['reason'] = $request->reason;
-      $metadata['admin_id'] = auth()->user()?->id;
     }
 
     $success = $this->trafficResetService->manualReset($user, $metadata);

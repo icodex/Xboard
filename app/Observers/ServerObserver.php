@@ -4,48 +4,50 @@ namespace App\Observers;
 
 use App\Models\Server;
 use App\Services\NodeSyncService;
+use App\Utils\CacheKey;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class ServerObserver
 {
-    public bool $afterCommit = true;
-
     public function created(Server $server): void
     {
-        $this->notifyMachineNodesChanged($server->machine_id);
+        $machineId = $server->machine_id;
+        DB::afterCommit(fn () => $this->notifyMachineNodesChanged($machineId));
     }
 
     public function updated(Server $server): void
     {
-        if ($server->wasChanged('group_ids')) {
-            NodeSyncService::notifyFullSync($server->id);
-        } elseif ($server->wasChanged([
-            'server_port',
-            'protocol_settings',
-            'type',
-            'route_ids',
-            'custom_outbounds',
-            'custom_routes',
-            'custom_route_rules',
-            'cert_config',
-            'kernel_log_level',
-            'kernel_type',
-            'host',
-            'parent_id',
-        ])) {
-            NodeSyncService::notifyConfigUpdated($server->id);
-        }
-
-        if ($server->wasChanged(['machine_id', 'enabled'])) {
-            $this->notifyMachineChange(
-                $server->machine_id,
-                $server->getOriginal('machine_id')
-            );
-        }
+        $fullSync = $server->wasChanged('group_ids');
+        $configChanged = $server->wasChanged([
+            'server_port', 'protocol_settings', 'type', 'route_ids', 'custom_outbounds',
+            'custom_routes', 'custom_route_rules', 'cert_config', 'kernel_log_level',
+            'kernel_type', 'host', 'parent_id',
+        ]);
+        $machineChanged = $server->wasChanged(['machine_id', 'enabled']);
+        $nodeId = $server->id;
+        $newMachineId = $server->machine_id;
+        $oldMachineId = $server->getOriginal('machine_id');
+        DB::afterCommit(function () use ($fullSync, $configChanged, $machineChanged, $nodeId, $newMachineId, $oldMachineId) {
+            if ($fullSync) {
+                $key = CacheKey::get('SERVER_USERS_VERSION');
+                if (Cache::increment($key) === false) {
+                    Cache::forever($key, 1);
+                }
+                NodeSyncService::notifyFullSync($nodeId);
+            } elseif ($configChanged) {
+                NodeSyncService::notifyConfigUpdated($nodeId);
+            }
+            if ($machineChanged) {
+                $this->notifyMachineChange($newMachineId, $oldMachineId);
+            }
+        });
     }
 
     public function deleted(Server $server): void
     {
-        $this->notifyMachineChange(null, $server->getOriginal('machine_id') ?: $server->machine_id);
+        $machineId = $server->machine_id;
+        DB::afterCommit(fn () => $this->notifyMachineChange(null, $machineId));
     }
 
     private function notifyMachineChange(?int $newMachineId, ?int $oldMachineId): void

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Plan;
+use App\Models\Order;
 use App\Models\User;
 use App\Exceptions\ApiException;
 use Illuminate\Database\Eloquent\Collection;
@@ -22,15 +23,66 @@ class PlanService
      *
      * @return Collection
      */
-    public function getAvailablePlans(): Collection
+    public function getAvailablePlans(?User $user = null): Collection
     {
-        return Plan::where('show', true)
-            ->where('sell', true)
-            ->orderBy('sort')
-            ->get()
-            ->filter(function ($plan) {
-                return $this->hasCapacity($plan);
+        $query = Plan::query();
+
+        if ($user && $user->plan_id) {
+            // A hidden or sold-out plan may still be renewed by its current active
+            // subscriber; validatePurchase() already allows that. Keep the list in
+            // sync instead of hiding the only renewal entry.
+            $query->where(function ($q) use ($user) {
+                $q->where(function ($q) {
+                    $q->where('show', true)->where('sell', true);
+                })->orWhere(function ($q) use ($user) {
+                    $q->where('id', $user->plan_id)->where('renew', true);
+                });
             });
+        } else {
+            $query->where('show', true)->where('sell', true);
+        }
+
+        $plans = $query->orderBy('sort')->get();
+
+        $activeCounts = User::whereIn('plan_id', $plans->pluck('id'))
+            ->active()
+            ->groupBy('plan_id')
+            ->selectRaw('plan_id, count(*) as aggregate')
+            ->pluck('aggregate', 'plan_id');
+
+        // Pending and processing orders reserve one slot per user unless their active subscription already occupies it.
+        $reservedCounts = Order::whereIn('plan_id', $plans->pluck('id'))
+            ->whereIn('status', [Order::STATUS_PENDING, Order::STATUS_PROCESSING])
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')->from('v2_user')
+                    ->whereColumn('v2_user.id', 'v2_order.user_id')
+                    ->whereColumn('v2_user.plan_id', 'v2_order.plan_id')
+                    ->where(function ($q) {
+                        $q->whereNull('v2_user.expired_at')->orWhere('v2_user.expired_at', 0)
+                            ->orWhere('v2_user.expired_at', '>', time());
+                    });
+            })
+            ->groupBy('plan_id')
+            ->selectRaw('plan_id, count(distinct user_id) as aggregate')
+            ->pluck('aggregate', 'plan_id');
+
+        return $plans->filter(function (Plan $plan) use ($user, $activeCounts, $reservedCounts) {
+            if ($user
+                && (int) $user->plan_id === (int) $plan->id
+                && $plan->renew
+                && $user->isActive()) {
+                return true;
+            }
+
+            if (!$plan->show || !$plan->sell) {
+                return false;
+            }
+
+            if ($plan->capacity_limit === null) {
+                return true;
+            }
+            return ($plan->capacity_limit - (int) ($activeCounts[$plan->id] ?? 0) - (int) ($reservedCounts[$plan->id] ?? 0)) > 0;
+        });
     }
 
     /**
@@ -85,7 +137,9 @@ class PlanService
             return;
         }
 
-        if ($user->plan_id !== $this->plan->id && !$this->hasCapacity($this->plan)) {
+        $isActiveRenewal = $user->plan_id === $this->plan->id
+            && ($user->expired_at === null || $user->expired_at == 0 || $user->expired_at > time());
+        if (!$isActiveRenewal && !$this->hasCapacity($this->plan)) {
             throw new ApiException(__('Current product is sold out'));
         }
 
@@ -149,11 +203,17 @@ class PlanService
 
     protected function validatePlanAvailability(User $user): void
     {
+        $isActiveRenewal = $user->plan_id === $this->plan->id
+            && ($user->expired_at === null || $user->expired_at == 0 || $user->expired_at > time());
+        if (!$this->plan->sell && !$isActiveRenewal) {
+            throw new ApiException(__('This subscription has been sold out, please choose another subscription'));
+        }
+
         if ((!$this->plan->show && !$this->plan->renew) || (!$this->plan->show && $user->plan_id !== $this->plan->id)) {
             throw new ApiException(__('This subscription has been sold out, please choose another subscription'));
         }
 
-        if (!$this->plan->renew && $user->plan_id == $this->plan->id) {
+        if (!$this->plan->renew && $isActiveRenewal) {
             throw new ApiException(__('This subscription cannot be renewed, please change to another subscription'));
         }
 
@@ -169,13 +229,23 @@ class PlanService
         }
 
         $activeUserCount = User::where('plan_id', $plan->id)
-            ->where(function ($query) {
-                $query->where('expired_at', '>=', time())
-                    ->orWhereNull('expired_at');
-            })
+            ->active()
             ->count();
 
-        return ($plan->capacity_limit - $activeUserCount) > 0;
+        // Cancelled orders release their slot; completed orders are counted through their active users.
+        $reservedCount = Order::where('plan_id', $plan->id)
+            ->whereIn('status', [Order::STATUS_PENDING, Order::STATUS_PROCESSING])
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')->from('v2_user')
+                    ->whereColumn('v2_user.id', 'v2_order.user_id')
+                    ->whereColumn('v2_user.plan_id', 'v2_order.plan_id')
+                    ->where(function ($q) {
+                        $q->whereNull('v2_user.expired_at')->orWhere('v2_user.expired_at', 0)
+                            ->orWhere('v2_user.expired_at', '>', time());
+                    });
+            })->distinct()->count('user_id');
+
+        return ($plan->capacity_limit - $activeUserCount - $reservedCount) > 0;
     }
 
     public function getAvailablePeriods(Plan $plan): array

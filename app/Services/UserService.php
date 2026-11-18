@@ -11,7 +11,6 @@ use App\Models\Server;
 use App\Models\User;
 use App\Services\Plugin\HookManager;
 use App\Services\TrafficResetService;
-use App\Models\TrafficResetLog;
 use App\Utils\Helper;
 use Illuminate\Support\Facades\Hash;
 
@@ -53,27 +52,9 @@ class UserService
         return false;
     }
 
-    public function getAvailableUsers()
-    {
-        return User::whereRaw('u + d < transfer_enable')
-            ->where(function ($query) {
-                $query->where('expired_at', '>=', time())
-                    ->orWhere('expired_at', NULL)
-                    // v2board legacy: 0 means never expires
-                    ->orWhere('expired_at', 0);
-            })
-            ->where('banned', 0)
-            ->get();
-    }
-
     public function getUsersByIds($ids)
     {
         return User::whereIn('id', $ids)->get();
-    }
-
-    public function getAllUsers()
-    {
-        return User::all();
     }
 
     public function addBalance(int $userId, int $balance): bool
@@ -118,30 +99,6 @@ class UserService
             StatUserJob::dispatch($server, $chunk->toArray(), $protocol);
             StatServerJob::dispatch($server, $chunk->toArray(), $protocol);
         });
-    }
-
-    /**
-     * 获取用户流量信息（增加重置检查）
-     */
-    public function getUserTrafficInfo(User $user): array
-    {
-        // 检查是否需要重置流量
-        app(TrafficResetService::class)->checkAndReset($user, TrafficResetLog::SOURCE_USER_ACCESS);
-
-        // 重新获取用户数据（可能已被重置）
-        $user->refresh();
-
-        return [
-            'upload' => $user->u ?? 0,
-            'download' => $user->d ?? 0,
-            'total_used' => $user->getTotalUsedTraffic(),
-            'total_available' => $user->transfer_enable ?? 0,
-            'remaining' => $user->getRemainingTraffic(),
-            'usage_percentage' => $user->getTrafficUsagePercentage(),
-            'next_reset_at' => $user->next_reset_at,
-            'last_reset_at' => $user->last_reset_at,
-            'reset_count' => $user->reset_count,
-        ];
     }
 
     /**

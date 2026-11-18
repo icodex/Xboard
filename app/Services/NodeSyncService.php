@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\NodeFullSyncJob;
 use App\Models\Server;
 use App\Models\ServerMachine;
 use App\Models\User;
@@ -12,6 +13,22 @@ use Illuminate\Support\Facades\Redis;
 
 class NodeSyncService
 {
+    public static function reconcileAll(): void
+    {
+        $key = CacheKey::get('SERVER_USERS_VERSION');
+        if (Cache::increment($key) === false) {
+            Cache::forever($key, 1);
+        }
+
+        Server::select('id')->chunkById(200, function ($servers) {
+            foreach ($servers as $server) {
+                if (self::isNodeOnline($server->id)) {
+                    NodeFullSyncJob::dispatch($server->id);
+                }
+            }
+        });
+    }
+
     /**
      * Check if node has active WS connection
      */
@@ -36,23 +53,6 @@ class NodeSyncService
     }
 
     /**
-     * Push all users to all nodes in the group
-     */
-    public static function notifyUsersUpdatedByGroup(int $groupId): void
-    {
-        $servers = Server::whereJsonContains('group_ids', (string) $groupId)
-            ->get();
-
-        foreach ($servers as $server) {
-            if (!self::isNodeOnline($server->id))
-                continue;
-
-            $users = ServerService::getAvailableUsers($server)->toArray();
-            self::push($server->id, 'sync.users', ['users' => $users]);
-        }
-    }
-
-    /**
      * Push user changes (add/remove) to affected nodes
      */
     public static function notifyUserChanged(User $user): void
@@ -60,7 +60,9 @@ class NodeSyncService
         if (!$user->group_id)
             return;
 
-        $servers = Server::whereJsonContains('group_ids', (string) $user->group_id)->get();
+        $servers = Server::where(fn ($query) => $query
+            ->whereJsonContains('group_ids', (string) $user->group_id)
+            ->orWhereJsonContains('group_ids', (int) $user->group_id))->get();
         foreach ($servers as $server) {
             if (!self::isNodeOnline($server->id))
                 continue;
@@ -91,8 +93,9 @@ class NodeSyncService
      */
     public static function notifyUserRemovedFromGroup(int $userId, int $groupId): void
     {
-        $servers = Server::whereJsonContains('group_ids', (string) $groupId)
-            ->get();
+        $servers = Server::where(fn ($query) => $query
+            ->whereJsonContains('group_ids', (string) $groupId)
+            ->orWhereJsonContains('group_ids', $groupId))->get();
 
         foreach ($servers as $server) {
             if (!self::isNodeOnline($server->id))

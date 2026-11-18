@@ -16,13 +16,17 @@ class CouponService
 
     public function __construct($code)
     {
-        $this->coupon = Coupon::where('code', $code)
-            ->lockForUpdate()
-            ->first();
+        // 构造时可能不在事务里（优惠券预览），那里的 lockForUpdate 是空转；
+        // 真正需要行锁的是 use()（下单事务内），见下
+        $this->coupon = Coupon::where('code', $code)->first();
     }
 
     public function use(Order $order): bool
     {
+        // 下单事务内重新加锁读取，避免两个订单并发把 limit_use 扣成负数
+        if ($this->coupon) {
+            $this->coupon = Coupon::whereKey($this->coupon->id)->lockForUpdate()->first() ?? $this->coupon;
+        }
         $this->setPlanId($order->plan_id);
         $this->setUserId($order->user_id);
         $this->setPeriod($order->period);

@@ -109,6 +109,38 @@ class OrderServiceConcurrencyTest extends TestCase
         $this->assertSame(1, $code->usages()->count());
     }
 
+    public function test_failed_gift_reset_rolls_back_redemption_and_rewards(): void
+    {
+        $plan = $this->makePlan();
+        $user = $this->makeUser(['plan_id' => $plan->id, 'balance' => 0, 'u' => 100]);
+        $template = GiftCardTemplate::create([
+            'name' => 'reset-failure', 'description' => 'reset-failure',
+            'type' => GiftCardTemplate::TYPE_GENERAL, 'status' => 1,
+            'rewards' => ['balance' => 100, 'reset_package' => true], 'admin_id' => 1,
+            'created_at' => time(), 'updated_at' => time(),
+        ]);
+        $code = GiftCardCode::create([
+            'template_id' => $template->id, 'code' => 'RESETFAIL',
+            'status' => GiftCardCode::STATUS_UNUSED, 'usage_count' => 0, 'max_usage' => 1,
+            'created_at' => time(), 'updated_at' => time(),
+        ]);
+        $reset = \Mockery::mock(\App\Services\TrafficResetService::class);
+        $reset->shouldReceive('performReset')->once()->andReturn(false);
+        $this->app->instance(\App\Services\TrafficResetService::class, $reset);
+
+        try {
+            (new GiftCardService('RESETFAIL'))->setUser($user)->redeem();
+            $this->fail('A failed traffic reset must reject redemption.');
+        } catch (ApiException $exception) {
+            $this->assertNotSame('', $exception->getMessage());
+        }
+
+        $this->assertSame(0, (int) $user->fresh()->balance);
+        $this->assertSame(100, (int) $user->fresh()->u);
+        $this->assertSame(0, (int) $code->fresh()->usage_count);
+        $this->assertSame(0, $code->usages()->count());
+    }
+
     public function test_checkout_rejects_negative_order_amount(): void
     {
         $user = $this->makeUser(['balance' => 0]);

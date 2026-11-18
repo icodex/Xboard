@@ -15,7 +15,8 @@ class TicketWithdraw  extends FormRequest
     {
         return [
             'withdraw_method' => 'required',
-            'withdraw_account' => 'required'
+            'withdraw_account' => 'required',
+            'amount' => 'nullable|numeric|min:0.01',
         ];
     }
 

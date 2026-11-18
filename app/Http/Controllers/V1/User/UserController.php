@@ -218,6 +218,9 @@ class UserController extends Controller
         $user = $request->user();
 
         $url = $this->loginService->generateQuickLoginUrl($user, $request->input('redirect'));
+        if (!$url) {
+            return $this->fail([500, 'Site URL is not configured']);
+        }
         return $this->success($url);
     }
 }

@@ -50,6 +50,19 @@ docker compose run -it --rm xboard php artisan xboard:install
 >
 > The local `compose.yaml` is gitignored so your edits survive `git pull` when you do clone the repo.
 
+For the split template, do not use the `xboard` install command above: the service is named `web` and Redis runs in its own container. Create an empty `.env` file, then run:
+
+```bash
+cp compose.split.sample.yaml compose.yaml
+touch .env
+docker compose up -d redis
+docker compose run --rm -it -e ENABLE_SQLITE=true web php artisan xboard:install
+docker compose up -d
+```
+
+The installer records `REDIS_HOST=redis` and `REDIS_PORT=6379`; all three application services use that same persistent Redis. Do not set `ENABLE_REDIS=true` for this template. If migrating an existing installation that used the embedded Redis socket, update those two values in `.env` and migrate any Redis data you need before starting the split services. Redis is not exposed on a host port.
+
+
 3. Start services:
 ```bash
 docker compose up -d
@@ -82,6 +95,7 @@ For security, upgrade to an image running **PHP 8.2.35 or later** with the lates
 
 ### Important Notes
 
+- Before enabling email-link login, set the public site URL in the admin `app_url` setting. Login links use that value, falling back to `APP_URL` in `.env` when it is unset; request headers are never used to choose the link origin.
 - If you need to use MySQL, please install it separately and redeploy
 - Code changes require service restart to take effect
 - You can configure Nginx reverse proxy to use port 80 

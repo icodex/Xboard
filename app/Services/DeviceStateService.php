@@ -11,16 +11,25 @@ use Illuminate\Support\Facades\Redis;
 class DeviceStateService
 {
     private const PREFIX = 'user_devices:';
+    private const NODE_USERS_PREFIX = 'node_users:';
     private const TTL = 300;                     // device state ttl
     private const DB_THROTTLE = 60;              // min seconds between DB refreshes per user
 
     /**
-     * 移除 Redis key 的前缀
+     * 每个节点持有一份「该节点上出现过设备的用户」集合。
+     * 没有这份集合时，算差集只能 SCAN 整个 user_devices:* 键空间（O(全部用户)）。
      */
-    private function removeRedisPrefix(string $key): string
+    private function nodeUsersKey(int $nodeId): string
     {
-        $prefix = config('database.redis.options.prefix', '');
-        return $prefix ? substr($key, strlen($prefix)) : $key;
+        return self::NODE_USERS_PREFIX . $nodeId;
+    }
+
+    /**
+     * 该节点当前有设备数据的用户 ID
+     */
+    public function getNodeUserIds(int $nodeId): array
+    {
+        return array_map('intval', Redis::smembers($this->nodeUsersKey($nodeId)) ?: []);
     }
 
     /**
@@ -44,42 +53,11 @@ class DeviceStateService
             }
             Redis::hMset($key, $fields);
             Redis::expire($key, self::TTL);
+            Redis::sadd($this->nodeUsersKey($nodeId), $userId);
+            Redis::expire($this->nodeUsersKey($nodeId), self::TTL);
         }
 
         $this->notifyUpdate($userId);
-    }
-
-    /**
-     * 获取某节点的所有设备数据
-     * 返回: {userId: [ip1, ip2, ...], ...}
-     */
-    public function getNodeDevices(int $nodeId): array
-    {
-        $prefix = "{$nodeId}:";
-        $result = [];
-        $cursor = 0;
-
-        // SCAN instead of KEYS: KEYS blocks the whole Redis instance on large keyspaces
-        do {
-            $batch = Redis::scan($cursor, ['match' => self::PREFIX . '*', 'count' => 500]);
-            if ($batch === false) {
-                break;
-            }
-            [$cursor, $keys] = $batch;
-            foreach ($keys as $key) {
-                $actualKey = $this->removeRedisPrefix($key);
-                $uid = (int) substr($actualKey, strlen(self::PREFIX));
-                $data = Redis::hgetall($actualKey);
-                foreach ($data as $field => $timestamp) {
-                    if (str_starts_with($field, $prefix)) {
-                        $ip = substr($field, strlen($prefix));
-                        $result[$uid][] = $ip;
-                    }
-                }
-            }
-        } while ($cursor > 0);
-
-        return $result;
     }
 
     /**
@@ -87,14 +65,8 @@ class DeviceStateService
      */
     public function removeNodeDevices(int $nodeId, int $userId): void
     {
-        $key = self::PREFIX . $userId;
-        $prefix = "{$nodeId}:";
-
-        foreach (Redis::hkeys($key) as $field) {
-            if (str_starts_with($field, $prefix)) {
-                Redis::hdel($key, $field);
-            }
-        }
+        $this->deleteNodeFields($nodeId, $userId);
+        Redis::srem($this->nodeUsersKey($nodeId), $userId);
     }
 
     /**
@@ -102,20 +74,36 @@ class DeviceStateService
      */
     public function clearAllNodeDevices(int $nodeId): array
     {
-        $oldDevices = $this->getNodeDevices($nodeId);
-        $prefix = "{$nodeId}:";
+        $userIds = $this->getNodeUserIds($nodeId);
 
-        foreach ($oldDevices as $userId => $ips) {
-            $key = self::PREFIX . $userId;
-            foreach (Redis::hkeys($key) as $field) {
-                if (str_starts_with($field, $prefix)) {
-                    Redis::hdel($key, $field);
-                }
-            }
+        foreach ($userIds as $userId) {
+            $this->deleteNodeFields($nodeId, $userId);
             $this->notifyUpdate($userId);
         }
 
-        return array_keys($oldDevices);
+        Redis::del($this->nodeUsersKey($nodeId));
+
+        return $userIds;
+    }
+
+    /**
+     * 删掉某用户哈希里属于该节点的字段（一次 hdel，不是每个字段一次）
+     */
+    private function deleteNodeFields(int $nodeId, int $userId): void
+    {
+        $key = self::PREFIX . $userId;
+        $prefix = "{$nodeId}:";
+        $fields = [];
+
+        foreach (Redis::hkeys($key) ?: [] as $field) {
+            if (str_starts_with($field, $prefix)) {
+                $fields[] = $field;
+            }
+        }
+
+        if ($fields !== []) {
+            Redis::hdel($key, ...$fields);
+        }
     }
 
     /**

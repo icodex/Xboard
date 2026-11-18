@@ -51,7 +51,9 @@ class GroupController extends Controller
         if (!$serverGroup) {
             return $this->fail([400202, '组不存在']);
         }
-        if (Server::whereJsonContains('group_ids', $groupId)->exists()) {
+        if (Server::where(fn ($query) => $query
+            ->whereJsonContains('group_ids', (string) $groupId)
+            ->orWhereJsonContains('group_ids', (int) $groupId))->exists()) {
             return $this->fail([400, '该组已被节点所使用，无法删除']);
         }
 

@@ -37,7 +37,13 @@ class AuthService
 
     public function getSessions(): array
     {
-        return $this->user->tokens()->get()->toArray();
+        // 只列还有效的会话：过期行由 sanctum:prune-expired 每天清，清理前仍会留在表里
+        return $this->user->tokens()
+            ->where(function ($query) {
+                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->get()
+            ->toArray();
     }
 
     public function removeSession(string $sessionId): bool

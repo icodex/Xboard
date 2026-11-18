@@ -17,13 +17,14 @@ class CacheKey
         'USER_SESSIONS' => '用户session',
         'FORGET_REQUEST_LIMIT' => '找回密码次数限制',
         'DEVICE_DB_THROTTLE' => '设备状态DB刷新节流',
-        'DEVICE_PUSH_PENDING_NODES' => '待推送设备状态的节点'
+        'DEVICE_PUSH_PENDING_NODES' => '待推送设备状态的节点',
+        'SERVER_USERS_PAYLOAD' => '节点用户名单响应体',
+        'SERVER_USERS_VERSION' => '节点用户名单版本号'
     ];
 
     // 允许的缓存键模式（支持通配符）
     const ALLOWED_PATTERNS = [
-        'SERVER_*_ONLINE_USER',        // 节点在线用户
-        'MULTI_SERVER_*_ONLINE_USER',  // 多服务器在线用户
+        'SERVER_*_ACTIVE_USER',        // 节点最近一次流量上报里的活跃用户数（并非在线连接数）
         'SERVER_*_LAST_CHECK_AT',      // 节点最后检查时间
         'SERVER_*_LAST_PUSH_AT',       // 节点最后推送时间
         'SERVER_*_LOAD_STATUS',        // 节点负载状态

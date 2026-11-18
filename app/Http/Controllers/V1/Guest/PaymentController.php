@@ -33,29 +33,16 @@ class PaymentController extends Controller
         }
     }
 
-    private function handle($tradeNo, $callbackNo, $paidAmount = null)
+    protected function handle(string $tradeNo, string $callbackNo, ?int $paidAmount = null): bool
     {
         $order = Order::where('trade_no', $tradeNo)->first();
         if (!$order) {
-            return $this->fail([400202, 'order is not found']);
-        }
-        if ($order->status !== Order::STATUS_PENDING)
-            return true;
-        // gateway plugins report the verified paid amount in cents; a mismatch
-        // (partial payment, tampered checkout) must never open the order
-        if ($paidAmount !== null) {
-            $expectedAmount = $order->total_amount + (int) ($order->handling_amount ?? 0);
-            if ((int) $paidAmount !== $expectedAmount) {
-                Log::warning('Payment amount mismatch', [
-                    'trade_no' => $tradeNo,
-                    'expected' => $expectedAmount,
-                    'paid' => (int) $paidAmount,
-                ]);
-                return $this->fail([400203, 'paid amount mismatch']);
-            }
+            // a truthful failure makes the gateway retry instead of dropping the payment
+            Log::warning('Payment notify for unknown order', ['trade_no' => $tradeNo]);
+            return false;
         }
         $orderService = new OrderService($order);
-        if (!$orderService->paid($callbackNo)) {
+        if (!$orderService->paid($callbackNo, $paidAmount, true)) {
             return false;
         }
 

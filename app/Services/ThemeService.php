@@ -49,6 +49,15 @@ class ThemeService
     }
 
     /**
+     * 当前前台主题。渲染端（routes/web.php）读的是 frontend_theme；
+     * current_theme 是历史键，仅在没有 frontend_theme 的旧库上兜底。
+     */
+    private function activeTheme(): ?string
+    {
+        return admin_setting('frontend_theme') ?: admin_setting('current_theme');
+    }
+
+    /**
      * Get theme view path
      */
     public function getThemeViewPath(string $theme): ?string
@@ -101,7 +110,7 @@ class ThemeService
                     return [];
                 }
 
-                $config['can_delete'] = $canDelete && $name !== admin_setting('current_theme');
+                $config['can_delete'] = $canDelete && $name !== $this->activeTheme();
                 $config['is_system'] = !$canDelete;
                 return [$name => $config];
             })->toArray();
@@ -185,6 +194,10 @@ class ThemeService
                     File::copyDirectory($sourcePath, $targetPath);
                     // 更新主题时保留用户配置
                     $this->initConfig($config['name'], true);
+                    // cleanupThemeFiles 会删 public/theme/<name>，正在使用的主题要立刻补回，否则前台资源 404
+                    if ($this->activeTheme() === $config['name']) {
+                        $this->refreshCurrentTheme();
+                    }
                     return true;
                 } else {
                     throw new Exception('Theme exists and not a newer version');
@@ -214,7 +227,7 @@ class ThemeService
             return true;
         }
 
-        $currentTheme = admin_setting('current_theme');
+        $currentTheme = $this->activeTheme();
 
         try {
             $themePath = $this->getThemePath($theme);
@@ -235,7 +248,8 @@ class ThemeService
                 throw new Exception('Failed to copy theme files');
             }
 
-            admin_setting(['current_theme' => $theme]);
+            // 渲染端读取的是 frontend_theme，只写 current_theme 会导致「切换成功但前台没变」
+            admin_setting(['frontend_theme' => $theme]);
             return true;
 
         } catch (Exception $e) {
@@ -254,7 +268,7 @@ class ThemeService
                 throw new Exception('System theme cannot be deleted');
             }
 
-            if ($theme === admin_setting('current_theme')) {
+            if ($theme === $this->activeTheme()) {
                 throw new Exception('Current theme cannot be deleted');
             }
 
@@ -402,7 +416,7 @@ class ThemeService
     {
         $currentTheme = null;
         try {
-            $currentTheme = admin_setting('current_theme');
+            $currentTheme = $this->activeTheme();
             if (!$currentTheme) {
                 return false;
             }

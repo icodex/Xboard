@@ -17,13 +17,14 @@ class LoginService
      * @param string $password 用户密码
      * @return array [成功状态, 用户对象或错误信息]
      */
-    public function login(string $email, string $password): array
+    public function login(string $email, string $password, ?string $ip = null): array
     {
         $email = User::normalizeEmail($email);
+        $passwordErrorKey = $this->passwordErrorKey($email, $ip);
 
         // 检查密码错误限制
         if ((int) admin_setting('password_limit_enable', true)) {
-            $passwordErrorCount = (int) Cache::get(CacheKey::get('PASSWORD_ERROR_LIMIT', $email), 0);
+            $passwordErrorCount = (int) Cache::get($passwordErrorKey, 0);
             if ($passwordErrorCount >= (int) admin_setting('password_limit_count', 5)) {
                 return [
                     false,
@@ -54,9 +55,9 @@ class LoginService
         ) {
             // 增加密码错误计数
             if ((int) admin_setting('password_limit_enable', true)) {
-                $passwordErrorCount = (int) Cache::get(CacheKey::get('PASSWORD_ERROR_LIMIT', $email), 0);
+                $passwordErrorCount = (int) Cache::get($passwordErrorKey, 0);
                 Cache::put(
-                    CacheKey::get('PASSWORD_ERROR_LIMIT', $email),
+                    $passwordErrorKey,
                     (int) $passwordErrorCount + 1,
                     60 * (int) admin_setting('password_limit_expire', 60)
                 );
@@ -69,12 +70,24 @@ class LoginService
             return [false, [400, __('Your account has been suspended')]];
         }
 
+        // 登录成功后清空计数，否则历史错误次数会一直累积到把本人锁在外面
+        Cache::forget($passwordErrorKey);
+
         // 更新最后登录时间
         $user->last_login_at = time();
         $user->save();
 
         HookManager::call('user.login.after', $user);
         return [true, $user];
+    }
+
+    /**
+     * 密码错误计数键：按「调用方 IP + 邮箱」计数。
+     * 只按邮箱计数时，任何人拿 5 个错密码就能把该用户锁在门外（账号锁定 DoS）。
+     */
+    private function passwordErrorKey(string $email, ?string $ip): string
+    {
+        return CacheKey::get('PASSWORD_ERROR_LIMIT', md5($email . '|' . ($ip ?? '')));
     }
 
     /**
@@ -120,6 +133,10 @@ class LoginService
 
         HookManager::call('user.password.reset.after', $user);
 
+        // A reset is the recovery path for a compromised account; tokens minted
+        // before the reset must not survive it.
+        $user->tokens()->delete();
+
         // 清除邮箱验证码
         Cache::forget(CacheKey::get('EMAIL_VERIFY_CODE', $email));
 
@@ -148,12 +165,8 @@ class LoginService
         $redirect = $redirect ?: 'dashboard';
         $loginRedirect = '/#/login?verify=' . $code . '&redirect=' . rawurlencode($redirect);
 
-        if (admin_setting('app_url')) {
-            $url = admin_setting('app_url') . $loginRedirect;
-        } else {
-            $url = url($loginRedirect);
-        }
-
-        return $url;
+        // URL::to() falls back to the request Host; a login token must never
+        // inherit an attacker-supplied Host header.
+        return trusted_site_url($loginRedirect);
     }
 }

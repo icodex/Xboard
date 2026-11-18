@@ -53,7 +53,7 @@ class TrojanTidalabController extends Controller
             return $this->fail([400, '节点不存在']);
         }
         $data = json_decode(request()->getContent(), true);
-        Cache::put(CacheKey::get('SERVER_TROJAN_ONLINE_USER', $server->id), count($data), 3600);
+        Cache::put(CacheKey::get('SERVER_TROJAN_ACTIVE_USER', $server->id), count($data), 3600);
         Cache::put(CacheKey::get('SERVER_TROJAN_LAST_PUSH_AT', $server->id), time(), 3600);
         $userService = new UserService();
         $formatData = [];

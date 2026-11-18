@@ -27,18 +27,82 @@ class TrafficResetService
     return $this->performReset($user, $triggerSource);
   }
 
-  /**
-   * Perform the traffic reset for a user.
-   */
-  public function performReset(User $user, string $triggerSource = TrafficResetLog::SOURCE_MANUAL): bool
+  /** Resume an interrupted policy change; each claim fences older sweepers. */
+  public function recalculatePendingSystemPolicy(): void
+  {
+    $token = DB::transaction(function () {
+      $pending = DB::table('v2_settings')->where('name', 'reset_traffic_policy_pending')->lockForUpdate()->value('value');
+      if (!$pending) {
+        return null;
+      }
+      $token = bin2hex(random_bytes(16));
+      DB::table('v2_settings')->where('name', 'reset_traffic_policy_pending')->update(['value' => $token]);
+      return $token;
+    });
+    if (!$token) {
+      return;
+    }
+
+    // The marker lock serializes each update against policy changes and cron resets.
+    User::whereHas('plan', fn ($query) => $query->whereNull('reset_traffic_method'))
+      ->chunkById(500, function ($users) use ($token) {
+        foreach ($users as $user) {
+          $current = DB::transaction(function () use ($user, $token) {
+            $pending = DB::table('v2_settings')->where('name', 'reset_traffic_policy_pending')->lockForUpdate()->value('value');
+            if ($pending !== $token) {
+              return false;
+            }
+            $locked = User::whereKey($user->id)->lockForUpdate()->first();
+            if ($locked && $locked->plan && $locked->plan->reset_traffic_method === Plan::RESET_TRAFFIC_FOLLOW_SYSTEM) {
+              $method = (int) (DB::table('v2_settings')->where('name', 'reset_traffic_method')->value('value')
+                ?? config('v2board.reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY));
+              $next = $this->calculateNextResetTime($locked, $method);
+              $locked->update(['next_reset_at' => $next?->timestamp]);
+            }
+            return true;
+          });
+          if (!$current) {
+            return false;
+          }
+        }
+      });
+
+    DB::table('v2_settings')->where('name', 'reset_traffic_policy_pending')
+      ->where('value', $token)->update(['value' => '']);
+  }
+
+  /** Perform the traffic reset for a user. */
+  public function performReset(User $user, string $triggerSource = TrafficResetLog::SOURCE_MANUAL, array $metadata = []): bool
   {
     try {
-      return DB::transaction(function () use ($user, $triggerSource) {
+      if ($triggerSource === TrafficResetLog::SOURCE_CRON) {
+        DB::table('v2_settings')->insertOrIgnore([
+          'name' => 'reset_traffic_policy_pending', 'value' => '', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+      }
+      return DB::transaction(function () use ($user, $triggerSource, $metadata) {
+        if ($triggerSource === TrafficResetLog::SOURCE_CRON && DB::table('v2_settings')
+          ->where('name', 'reset_traffic_policy_pending')->lockForUpdate()->value('value')) {
+          return false;
+        }
+        $locked = User::whereKey($user->id)->lockForUpdate()->first();
+        if (!$locked) {
+          return false;
+        }
+        if ($triggerSource === TrafficResetLog::SOURCE_CRON) {
+          $systemMethod = (int) (\App\Models\Setting::where('name', 'reset_traffic_method')->value('value')
+            ?? config('v2board.reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY));
+          if (!$locked->shouldResetTraffic() || !$locked->plan_id || !$this->calculateNextResetTime($locked, $systemMethod)) {
+            return false;
+          }
+        }
+        $user = $locked;
+
         $oldUpload = $user->u ?? 0;
         $oldDownload = $user->d ?? 0;
         $oldTotal = $oldUpload + $oldDownload;
 
-        $nextResetTime = $this->calculateNextResetTime($user);
+        $nextResetTime = $this->calculateNextResetTime($user, $systemMethod ?? null);
 
         $user->update([
           'u' => 0,
@@ -57,6 +121,7 @@ class TrafficResetService
           'new_upload' => 0,
           'new_download' => 0,
           'new_total' => 0,
+          'metadata' => $metadata ?: null,
         ]);
 
         HookManager::call('traffic.reset.after', $user);
@@ -77,14 +142,13 @@ class TrafficResetService
   /**
    * Calculate the next traffic reset time for a user.
    */
-  public function calculateNextResetTime(User $user): ?Carbon
+  public function calculateNextResetTime(User $user, ?int $systemResetMethod = null): ?Carbon
   {
     if (
       !$user->plan
       || $user->plan->reset_traffic_method === Plan::RESET_TRAFFIC_NEVER
       || ($user->plan->reset_traffic_method === Plan::RESET_TRAFFIC_FOLLOW_SYSTEM
-        && (int) admin_setting('reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY) === Plan::RESET_TRAFFIC_NEVER)
-      || $user->expired_at === NULL
+        && ($systemResetMethod ?? (int) admin_setting('reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY)) === Plan::RESET_TRAFFIC_NEVER)
     ) {
       return null;
     }
@@ -92,7 +156,7 @@ class TrafficResetService
     $resetMethod = $user->plan->reset_traffic_method;
 
     if ($resetMethod === Plan::RESET_TRAFFIC_FOLLOW_SYSTEM) {
-      $resetMethod = (int) admin_setting('reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY);
+      $resetMethod = $systemResetMethod ?? (int) admin_setting('reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY);
     }
 
     $now = Carbon::now(config('app.timezone'));
@@ -111,7 +175,7 @@ class TrafficResetService
    */
   private function getNextMonthFirstDay(Carbon $from): Carbon
   {
-    return $from->copy()->addMonth()->startOfMonth();
+    return $from->copy()->startOfMonth()->addMonth();
   }
 
   /**
@@ -125,26 +189,22 @@ class TrafficResetService
    */
   private function getNextMonthlyReset(User $user, Carbon $from): Carbon
   {
-    $expiredAt = Carbon::createFromTimestamp($user->expired_at, config('app.timezone'));
-    $resetDay = $expiredAt->day;
-    $resetTime = [$expiredAt->hour, $expiredAt->minute, $expiredAt->second];
-    
-    $currentMonthTarget = $from->copy()->day($resetDay)->setTime(...$resetTime);
-    if ($currentMonthTarget->timestamp > $from->timestamp) {
-      return $currentMonthTarget;
+    $expiredAt = $user->expired_at
+      ? Carbon::createFromTimestamp((int) $user->expired_at, config('app.timezone'))
+      : null;
+    $resetDay = $expiredAt ? $expiredAt->day : 1;
+    $resetTime = $expiredAt
+      ? [$expiredAt->hour, $expiredAt->minute, $expiredAt->second]
+      : [0, 0, 0];
+
+    $month = $from->copy()->startOfMonth();
+    $target = $month->copy()->day(min($resetDay, $month->daysInMonth))->setTime(...$resetTime);
+    if ($target->greaterThan($from)) {
+      return $target;
     }
-    
-    $nextMonthTarget = $from->copy()->startOfMonth()->addMonths(1)->day($resetDay)->setTime(...$resetTime);
-    
-    if ($nextMonthTarget->month !== ($from->month % 12) + 1) {
-      $nextMonth = ($from->month % 12) + 1;
-      $nextYear = $from->year + ($from->month === 12 ? 1 : 0);
-      $lastDayOfNextMonth = Carbon::create($nextYear, $nextMonth, 1)->endOfMonth()->day;
-      $targetDay = min($resetDay, $lastDayOfNextMonth);
-      $nextMonthTarget = Carbon::create($nextYear, $nextMonth, $targetDay)->setTime(...$resetTime);
-    }
-    
-    return $nextMonthTarget;
+
+    $month->addMonth();
+    return $month->day(min($resetDay, $month->daysInMonth))->setTime(...$resetTime);
   }
 
   /**
@@ -152,7 +212,7 @@ class TrafficResetService
    */
   private function getNextYearFirstDay(Carbon $from): Carbon
   {
-    return $from->copy()->addYear()->startOfYear();
+    return $from->copy()->startOfYear()->addYear();
   }
 
   /**
@@ -166,26 +226,23 @@ class TrafficResetService
    */
   private function getNextYearlyReset(User $user, Carbon $from): Carbon
   {
-    $expiredAt = Carbon::createFromTimestamp($user->expired_at, config('app.timezone'));
-    $resetMonth = $expiredAt->month;
-    $resetDay = $expiredAt->day;
-    $resetTime = [$expiredAt->hour, $expiredAt->minute, $expiredAt->second];
+    $expiredAt = $user->expired_at
+      ? Carbon::createFromTimestamp((int) $user->expired_at, config('app.timezone'))
+      : null;
+    $resetMonth = $expiredAt ? $expiredAt->month : 1;
+    $resetDay = $expiredAt ? $expiredAt->day : 1;
+    $resetTime = $expiredAt
+      ? [$expiredAt->hour, $expiredAt->minute, $expiredAt->second]
+      : [0, 0, 0];
 
-    $currentYearTarget = $from->copy()->month($resetMonth)->day($resetDay)->setTime(...$resetTime);
-    if ($currentYearTarget->timestamp > $from->timestamp) {
-      return $currentYearTarget;
+    $month = $from->copy()->startOfYear()->month($resetMonth);
+    $target = $month->copy()->day(min($resetDay, $month->daysInMonth))->setTime(...$resetTime);
+    if ($target->greaterThan($from)) {
+      return $target;
     }
-    
-    $nextYearTarget = $from->copy()->startOfYear()->addYears(1)->month($resetMonth)->day($resetDay)->setTime(...$resetTime);
-    
-    if ($nextYearTarget->month !== $resetMonth) {
-      $nextYear = $from->year + 1;
-      $lastDayOfMonth = Carbon::create($nextYear, $resetMonth, 1)->endOfMonth()->day;
-      $targetDay = min($resetDay, $lastDayOfMonth);
-      $nextYearTarget = Carbon::create($nextYear, $resetMonth, $targetDay)->setTime(...$resetTime);
-    }
-    
-    return $nextYearTarget;
+
+    $month->addYearNoOverflow();
+    return $month->day(min($resetDay, $month->daysInMonth))->setTime(...$resetTime);
   }
 
 
@@ -262,6 +319,6 @@ class TrafficResetService
       return false;
     }
 
-    return $this->performReset($user, TrafficResetLog::SOURCE_MANUAL);
+    return $this->performReset($user, TrafficResetLog::SOURCE_MANUAL, $metadata);
   }
 }

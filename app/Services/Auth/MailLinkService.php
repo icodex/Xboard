@@ -25,9 +25,17 @@ class MailLinkService
             return [false, [404, null]];
         }
 
+        $siteUrl = trusted_site_url();
+        if (!$siteUrl) {
+            return [false, [500, 'Site URL is not configured']];
+        }
+
         if (Cache::get(CacheKey::get('LAST_SEND_LOGIN_WITH_MAIL_LINK_TIMESTAMP', $email))) {
             return [false, [429, __('Sending frequently, please try again later')]];
         }
+
+        // 先占位再查用户：未知邮箱也走同样的限流，否则响应差异可以用来枚举账号
+        Cache::put(CacheKey::get('LAST_SEND_LOGIN_WITH_MAIL_LINK_TIMESTAMP', $email), time(), 60);
 
         $user = User::byEmail($email)->first();
         if (!$user) {
@@ -37,14 +45,9 @@ class MailLinkService
         $code = Helper::guid();
         $key = CacheKey::get('TEMP_TOKEN', $code);
         Cache::put($key, $user->id, 300);
-        Cache::put(CacheKey::get('LAST_SEND_LOGIN_WITH_MAIL_LINK_TIMESTAMP', $email), time(), 60);
 
         $redirectUrl = '/#/login?verify=' . $code . '&redirect=' . ($redirect ? $redirect : 'dashboard');
-        if (admin_setting('app_url')) {
-            $link = admin_setting('app_url') . $redirectUrl;
-        } else {
-            $link = url($redirectUrl);
-        }
+        $link = $siteUrl . $redirectUrl;
 
         $this->sendMailLinkEmail($user, $link);
 

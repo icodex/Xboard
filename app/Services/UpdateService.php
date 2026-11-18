@@ -169,13 +169,13 @@ class UpdateService
     {
         // Check for new version first
         $updateInfo = $this->checkForUpdates();
-        if ($updateInfo['is_local_newer']) {
+        if ($updateInfo['is_local_newer'] ?? false) {
             return [
                 'success' => false,
                 'message' => __('update.local_newer')
             ];
         }
-        if (!$updateInfo['has_update']) {
+        if (!($updateInfo['has_update'] ?? false)) {
             return [
                 'success' => false,
                 'message' => __('update.already_latest')
@@ -258,7 +258,7 @@ class UpdateService
     {
         try {
             // Ensure git configuration is correct
-            Process::run(sprintf('git config --global --add safe.directory %s', base_path()));
+            Process::run(sprintf('git config --global --add safe.directory %s', escapeshellarg(base_path())));
             $result = Process::run('git rev-parse HEAD');
             $fullHash = trim($result->output());
             return $fullHash ? $this->formatCommitHash($fullHash) : 'unknown';
@@ -291,10 +291,10 @@ class UpdateService
     {
         try {
             // Use existing backup command
-            Process::run('php artisan backup:database');
-            
-            if (!Process::result()->successful()) {
-                throw new \Exception(__('update.backup_failed', ['error' => Process::result()->errorOutput()]));
+            $result = Process::run('php artisan backup:database');
+
+            if (!$result->successful()) {
+                throw new \Exception(__('update.backup_failed', ['error' => $result->errorOutput()]));
             }
         } catch (\Exception $e) {
             Log::error('Database backup failed: ' . $e->getMessage());
@@ -307,16 +307,27 @@ class UpdateService
         try {
             // Get current project root directory
             $basePath = base_path();
-            
-            // Ensure git configuration is correct
-            Process::run(sprintf('git config --global --add safe.directory %s', $basePath));
-            
-            // Pull latest code
-            Process::run('git fetch origin master');
-            Process::run('git reset --hard origin/master');
 
-            // Update dependencies
-            Process::run('composer install --no-dev --optimize-autoloader');
+            // Ensure git configuration is correct
+            Process::run(sprintf('git config --global --add safe.directory %s', escapeshellarg($basePath)));
+
+            // Process::run() 不会在非零退出码时抛异常，逐步检查，避免拉挂后仍报更新成功
+            $commands = [
+                'git fetch origin master',
+                'git reset --hard origin/master',
+                'composer install --no-dev --optimize-autoloader',
+            ];
+            foreach ($commands as $command) {
+                $result = Process::run($command);
+                if (!$result->successful()) {
+                    return [
+                        'success' => false,
+                        'message' => __('update.code_update_failed', [
+                            'error' => trim($result->errorOutput()) ?: $command
+                        ])
+                    ];
+                }
+            }
 
             // Update version cache after pulling new code
             $this->updateVersionCache();
@@ -333,7 +344,10 @@ class UpdateService
     protected function runMigrations(): void
     {
         try {
-            Process::run('php artisan migrate --force');
+            $result = Process::run('php artisan migrate --force');
+            if (!$result->successful()) {
+                throw new \Exception(trim($result->errorOutput()) ?: 'migrate --force exited non-zero');
+            }
         } catch (\Exception $e) {
             Log::error('Migration failed: ' . $e->getMessage());
             throw new \Exception(__('update.migration_failed', ['error' => $e->getMessage()]));
@@ -351,7 +365,10 @@ class UpdateService
             ];
 
             foreach ($commands as $command) {
-                Process::run($command);
+                $result = Process::run($command);
+                if (!$result->successful()) {
+                    throw new \Exception(trim($result->errorOutput()) ?: $command);
+                }
             }
         } catch (\Exception $e) {
             Log::error('Cache clearing failed: ' . $e->getMessage());
@@ -415,6 +432,7 @@ class UpdateService
     {
         return Cache::get(self::CACHE_UPDATE_INFO, [
             'has_update' => false,
+            'is_local_newer' => false,
             'latest_version' => $this->getCurrentCommit(),
             'current_version' => $this->getCurrentCommit(),
             'update_logs' => [],

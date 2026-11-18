@@ -115,12 +115,12 @@ class Surge extends AbstractProtocol
 
     public static function buildShadowsocks($password, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
+        $protocol_settings = data_get($server, 'protocol_settings', []);
         $config = [
             "{$server['name']} = ss",
             "{$server['host']}",
             "{$server['port']}",
-            "encrypt-method={$protocol_settings['cipher']}",
+            "encrypt-method=" . data_get($protocol_settings, 'cipher'),
             "password={$password}",
             'tfo=true',
             'udp-relay=true'
@@ -251,15 +251,15 @@ class Surge extends AbstractProtocol
     //参考文档: https://manual.nssurge.com/policy/proxy.html
     public static function buildHysteria($password, $server)
     {
-        $protocol_settings = $server['protocol_settings'];
-        if ($protocol_settings['version'] != 2)
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        if ((int) data_get($protocol_settings, 'version') !== 2)
             return '';
         $config = [
             "{$server['name']} = hysteria2",
             "{$server['host']}",
             "{$server['port']}",
             "password={$password}",
-            $protocol_settings['tls']['server_name'] ? "sni={$protocol_settings['tls']['server_name']}" : "",
+            data_get($protocol_settings, 'tls.server_name') ? "sni={$protocol_settings['tls']['server_name']}" : "",
             // 'tfo=true', 
             'udp-relay=true'
         ];
