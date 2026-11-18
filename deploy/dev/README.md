@@ -22,7 +22,7 @@ sudo -n docker compose up -d --build      # 从本地 Dockerfile 构建 xboard-t
 
 `init.sh` 自动从当前数据库生成交接 prompt `NODE-TEST-PROMPT.md`，含实际 ID、端口、传输、关键参数（cipher/版本/obfs/flow）和内核，贴到 Xboard-node 会话。固定 `singbox` / `xray` 的副本分别验证双内核；`Socks-tls` 是禁用的历史负向样本，不是加密节点。
 
-初始化现在会先用 `ServerSave` 规则逐条预检启用种子，违反即抛错中止，避免脏配置进节点测试；矩阵改名后的残留节点只处理测试分组内、且不在当前种子名单里的行（`init.sh` 传 `PRUNE_STALE=1` 删除并打印 `PRUNED`，手工执行 `init.php` 则只告警）。
+初始化现在会先用 `ServerSave` 规则逐条预检启用种子，违反即抛错中止，避免脏配置进节点测试；矩阵改名后的残留节点只处理 **seed 自己写入**（`tags` 含 `dev-seed`）且不在当前种子名单里的行；`init.sh` 传 `PRUNE_STALE=1` 删除并打印 `PRUNED`，手工执行 `init.php` 只告警。手工新建或节点侧创建的节点不会被清理。
 
 初始化末尾自动跑两个下发门禁，任一失败即中止：
 

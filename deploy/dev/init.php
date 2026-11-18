@@ -47,9 +47,10 @@ if ($invalid !== []) {
 }
 
 // 种子按名称更新，矩阵改名后旧节点会残留并混进测试表。
-// 仅测试分组、且不在当前种子名单里的行；设 PRUNE_STALE=1 时删除（init.sh 默认开启），
-// 否则只告警。其他分组与手工节点不受影响。
+// 只动 tags 含 dev-seed 的行（seed 自己写入的），因此手工/节点侧新建的节点不会被删。
+// PRUNE_STALE=1 时删除并打印；否则只告警。
 $stale = Server::whereJsonContains('group_ids', (string) $group->id)
+    ->whereJsonContains('tags', 'dev-seed')
     ->whereNotIn('name', $seededNames);
 if ($stale->exists()) {
     $names = $stale->pluck('name');

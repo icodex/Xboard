@@ -132,6 +132,8 @@ foreach ($nodes as [$type, $name, $port, $ps, $extra]) {
         'show'              => 1,
         'enabled'           => 1,
         'protocol_settings' => $ps,
+        // 标记由本 seed 管理，仅这些行允许被 PRUNE_STALE 清理
+        'tags'              => ['dev-seed'],
         'created_at'        => $exists ? $exists->created_at : time(),
         'updated_at'        => time(),
     ], $extra);
