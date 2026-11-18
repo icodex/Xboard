@@ -5,7 +5,7 @@ use App\Models\Server;
 use App\Models\ServerGroup;
 use App\Utils\Helper;
 
-$groupId = ServerGroup::value('id') ?: 1;
+$groupId = isset($group) ? $group->id : (ServerGroup::value('id') ?: 1);
 $reality = [
     'private_key' => '-GGW-J_QWKaaaqnZe4q9T7Uu6L3kPeMpWuZgMg5Gymg',
     'public_key'  => 'YrYngPHn0t67mvgLXFmqbKqKzZKe_UXlt2dCoUpq2wc',
@@ -48,8 +48,73 @@ $nodes = [
     ['vless',       'VLESS-httpupgrade-tls',10028, ['tls' => 1, 'network' => 'httpupgrade', 'network_settings' => ['path' => '/vlhu', 'host' => 'test.local'], 'tls_settings' => ['server_name' => 'test.local']], $certSelf],
     ['vmess',       'VMess-tcp-tls',        10029, ['tls' => 1, 'network' => 'tcp', 'tls_settings' => ['server_name' => 'test.local']], $certSelf],
     ['vmess',       'VMess-ws-plain',       10030, ['tls' => 0, 'network' => 'ws', 'network_settings' => ['path' => '/vmwsp']], []],
-    ['socks',       'Socks-tls',            10031, ['tls' => 1, 'tls_settings' => ['server_name' => 'test.local']], $certSelf],
+    // 历史非法配置仅用于验证下发归一化，不加入正向连接矩阵或订阅。
+    ['socks',       'Socks-tls',            10031, ['tls' => 1, 'tls_settings' => ['server_name' => 'test.local']], array_merge($certSelf, ['enabled' => 0, 'show' => 0])],
 ];
+
+// Keep generated names and ports stable across repeated seeds; IDs are database-assigned.
+$port = 10032;
+foreach (['aes-128-gcm', 'aes-192-gcm', 'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305'] as $cipher) {
+    $nodes[] = ['shadowsocks', 'SS-' . $cipher, $port++, ['cipher' => $cipher], []];
+}
+$nodes[] = ['hysteria', 'Hysteria2-plain', $port++, ['version' => 2, 'bandwidth' => ['up' => 100, 'down' => 200], 'tls' => ['server_name' => 'test.local']], $certSelf];
+$nodes[] = ['hysteria', 'Hysteria1-obfs', $port++, ['version' => 1, 'bandwidth' => ['up' => 100, 'down' => 200], 'obfs' => ['password' => 'obfspass'], 'tls' => ['server_name' => 'test.local']], $certSelf];
+foreach (['cubic', 'new_reno'] as $cc) {
+    $nodes[] = ['tuic', 'TUIC-' . $cc, $port++, ['version' => 5, 'congestion_control' => $cc, 'tls' => ['server_name' => 'test.local']], $certSelf];
+}
+$nodes[] = ['http', 'HTTP-plain', $port++, ['tls' => 0], []];
+$nodes[] = ['mieru', 'Mieru-udp', $port++, ['transport' => 'UDP', 'traffic_pattern' => ''], []];
+
+// Candidate combinations are deliberately tested rather than asserted compatible.
+// Reality only uses transports with a defined Reality handshake; h2/http and
+// xhttp/splithttp have mutually exclusive kernel support.
+foreach (['vmess', 'vless', 'trojan'] as $protocol) {
+    foreach (['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp', 'splithttp'] as $network) {
+        foreach ([0, 1, 2] as $tls) {
+            if ($tls === 2 && !in_array($network, ['tcp', 'grpc', 'xhttp', 'splithttp'], true)) {
+                continue;
+            }
+            if ($protocol === 'trojan' && $tls === 0) {
+                continue;
+            }
+            $settings = ['tls' => $tls, 'network' => $network];
+            if ($network !== 'tcp') {
+                $settings['network_settings'] = $network === 'grpc'
+                    ? ['serviceName' => 'matrix']
+                    : ['path' => '/matrix', 'host' => 'test.local'];
+            }
+            if ($tls === 1) {
+                $settings['tls_settings'] = ['server_name' => 'test.local'];
+            } elseif ($tls === 2) {
+                $settings['reality_settings'] = $reality + ['short_id' => '0123abcd', 'server_name' => 'www.microsoft.com', 'dest' => 'www.microsoft.com:443'];
+            }
+            $nodes[] = [$protocol, strtoupper($protocol) . '-' . $network . '-tls' . $tls . '-matrix', $port++, $settings, $tls === 1 ? $certSelf : []];
+        }
+    }
+}
+
+// One fixed-kernel copy per eligible scenario. Both copies are independent
+// listeners; protocol/transport incompatibilities are excluded, not masked by auto.
+$scenarios = $nodes;
+foreach ($scenarios as [$type, $name, $unused, $settings, $extra]) {
+    if (($extra['enabled'] ?? 1) === 0) {
+        continue;
+    }
+    $network = $settings['network'] ?? 'tcp';
+    $kernels = match (true) {
+        in_array($type, ['shadowsocks', 'vmess', 'vless', 'trojan'], true) => ['singbox', 'xray'],
+        $type === 'hysteria' && ($settings['version'] ?? null) === 2 => ['singbox', 'xray'],
+        default => ['singbox'],
+    };
+    foreach ($kernels as $kernel) {
+        if (($kernel === 'singbox' && in_array($network, ['xhttp', 'splithttp'], true))
+            || ($kernel === 'xray' && in_array($network, ['h2', 'http'], true))
+            || ($kernel === 'singbox' && $type === 'vmess' && ($settings['tls'] ?? null) === 2)) {
+            continue;
+        }
+        $nodes[] = [$type, $name . '-' . $kernel, $port++, $settings, array_merge($extra, ['kernel_type' => $kernel])];
+    }
+}
 
 foreach ($nodes as [$type, $name, $port, $ps, $extra]) {
     $exists = Server::where('name', $name)->first();
@@ -65,7 +130,7 @@ foreach ($nodes as [$type, $name, $port, $ps, $extra]) {
         'show'              => 1,
         'enabled'           => 1,
         'protocol_settings' => $ps,
-        'created_at'        => time(),
+        'created_at'        => $exists ? $exists->created_at : time(),
         'updated_at'        => time(),
     ], $extra);
     if ($exists) {
@@ -77,4 +142,7 @@ foreach ($nodes as [$type, $name, $port, $ps, $extra]) {
         echo "CREATED {$name} #{$n->id}" . PHP_EOL;
     }
 }
+// init.php 用此清单做保存规则预检与遗留节点检测
+$seededNames = array_column($nodes, 1);
+
 echo 'DONE total=' . Server::count() . PHP_EOL;

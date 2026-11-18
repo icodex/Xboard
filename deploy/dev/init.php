@@ -1,7 +1,8 @@
 <?php
 
-// 面板测试数据初始化（幂等）：31 节点 + 分组 + 套餐 + 管理员 + server_token + secure_path。
+// 面板测试数据初始化（幂等）：协议矩阵、分组、套餐、管理员、server_token 和 secure_path。
 // 容器内执行：php artisan tinker --execute="require '/www/init.php';"
+use App\Models\Server;
 use App\Models\ServerGroup;
 use App\Models\Plan;
 use App\Models\Setting;
@@ -11,13 +12,48 @@ use Illuminate\Support\Facades\Cache;
 
 Illuminate\Database\Eloquent\Model::unguard();
 
-// group + 31 节点（seed-nodes.php 只读 group、不建，兜底 id=1）
+// 创建测试分组，再按名称更新协议矩阵。
 $group = ServerGroup::firstOrCreate(
     ['name' => '全协议测试'],
     ServerGroup::count() ? [] : ['id' => 1]
 );
 
 require '/www/seed-nodes.php';
+
+// 预检：种子必须能通过管理端保存规则，避免带着脏配置进节点侧测试。
+// ServerSave::rules() 按请求里的 type 分支，因此每个节点单独构造请求。
+$invalid = [];
+$seededNames = $seededNames ?? [];
+foreach (Server::whereIn('name', $seededNames)->where('enabled', 1)->get() as $server) {
+    $attrs = [
+        'type' => $server->type,
+        'name' => $server->name,
+        'host' => $server->host,
+        'port' => $server->port,
+        'server_port' => $server->server_port,
+        'rate' => $server->rate,
+        'protocol_settings' => $server->protocol_settings ?? [],
+        'cert_config' => $server->cert_config,
+    ];
+    $request = new \App\Http\Requests\Admin\ServerSave();
+    $request->merge($attrs);
+    $validator = \Illuminate\Support\Facades\Validator::make($attrs, $request->rules());
+    if ($validator->fails()) {
+        $invalid[$server->name] = $validator->errors()->toArray();
+    }
+}
+if ($invalid !== []) {
+    throw new \RuntimeException('seed violates ServerSave rules: ' . json_encode($invalid, JSON_UNESCAPED_UNICODE));
+}
+
+// 种子按名称更新，矩阵改名后旧节点会残留并混进测试表；只告警不删除。
+$stale = Server::whereJsonContains('group_ids', (string) $group->id)
+    ->pluck('name')
+    ->diff($seededNames);
+if ($stale->isNotEmpty()) {
+    echo 'WARN stale test nodes not in seed: ' . $stale->take(5)->implode(', ')
+        . ($stale->count() > 5 ? ' (+' . ($stale->count() - 5) . ')' : '') . PHP_EOL;
+}
 
 Plan::firstOrCreate(
     ['name' => '全协议测试'],

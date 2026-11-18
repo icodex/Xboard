@@ -1,0 +1,32 @@
+# Build context filter for deploy/dev/Dockerfile. BuildKit prefers
+# <Dockerfile>.dockerignore over the repo root .dockerignore, so this file has to
+# stand alone. Difference from the root list: composer.lock is KEPT (vendor is
+# installed from the locked set inside the image), and runtime junk that only
+# bloats the context is dropped.
+
+.git
+.gitmodules
+.claude
+.tokensave
+.docker/.data
+node_modules
+vendor
+.env
+.env.backup
+.env.example
+.phpunit.result.cache
+phpstan.neon
+phpstan-baseline.neon
+phpunit.xml
+public/hot
+public/storage
+storage/*.key
+storage/logs
+storage/debugbar
+storage/backup
+storage/tmp
+storage/views
+storage/framework/cache/data
+storage/framework/sessions
+storage/framework/views
+.DS_Store
