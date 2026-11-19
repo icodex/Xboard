@@ -31,9 +31,11 @@ class UserUpdate extends FormRequest
             'is_staff' => 'boolean',
             'u' => 'integer',
             'd' => 'integer',
-            'balance' => 'numeric',
+            // min:0：负余额会让 handleUserBalance() 把订单金额反算成更高价，取消时
+            // 又因 addBalance(负) 失败而永久挂单。
+            'balance' => 'numeric|min:0',
             'commission_type' => 'integer',
-            'commission_balance' => 'numeric',
+            'commission_balance' => 'numeric|min:0',
             'remarks' => 'nullable',
             'speed_limit' => 'nullable|integer',
             'device_limit' => 'nullable|integer'

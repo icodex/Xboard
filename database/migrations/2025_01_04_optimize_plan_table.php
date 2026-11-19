@@ -97,14 +97,16 @@ return new class extends Migration {
                 DB::table('v2_plan')
                     ->where('id', $plan->id)
                     ->update([
-                        'month_price' => $prices['monthly'] * 100 ?? null,
-                        'quarter_price' => $prices['quarterly'] * 100 ?? null,
-                        'half_year_price' => $prices['half_yearly'] * 100 ?? null,
-                        'year_price' => $prices['yearly'] * 100 ?? null,
-                        'two_year_price' => $prices['two_yearly'] * 100 ?? null,
-                        'three_year_price' => $prices['three_yearly'] * 100 ?? null,
-                        'onetime_price' => $prices['onetime'] * 100 ?? null,
-                        'reset_price' => $prices['reset_traffic'] * 100 ?? null,
+                        // `$prices['x'] * 100 ?? null` is ($prices['x'] * 100) ?? null:
+                        // a period the plan does not sell becomes 0, i.e. a free tier.
+                        'month_price' => isset($prices['monthly']) ? (int) round($prices['monthly'] * 100) : null,
+                        'quarter_price' => isset($prices['quarterly']) ? (int) round($prices['quarterly'] * 100) : null,
+                        'half_year_price' => isset($prices['half_yearly']) ? (int) round($prices['half_yearly'] * 100) : null,
+                        'year_price' => isset($prices['yearly']) ? (int) round($prices['yearly'] * 100) : null,
+                        'two_year_price' => isset($prices['two_yearly']) ? (int) round($prices['two_yearly'] * 100) : null,
+                        'three_year_price' => isset($prices['three_yearly']) ? (int) round($prices['three_yearly'] * 100) : null,
+                        'onetime_price' => isset($prices['onetime']) ? (int) round($prices['onetime'] * 100) : null,
+                        'reset_price' => isset($prices['reset_traffic']) ? (int) round($prices['reset_traffic'] * 100) : null,
                     ]);
             }
         });

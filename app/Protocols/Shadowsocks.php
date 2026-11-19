@@ -30,7 +30,7 @@ class Shadowsocks extends AbstractProtocol
         foreach ($servers as $item) {
             if (
                 $item['type'] === 'shadowsocks'
-                && in_array(data_get($item, 'protocol_settings.cipher'), ['aes-128-gcm', 'aes-256-gcm', 'aes-192-gcm', 'chacha20-ietf-poly1305'])
+                && in_array(data_get($item, 'protocol_settings.cipher'), ['aes-128-gcm', 'aes-256-gcm', 'aes-192-gcm', 'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305'])
             ) {
                 array_push($configs, self::SIP008($item, $user));
             }

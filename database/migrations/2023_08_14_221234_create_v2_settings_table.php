@@ -13,6 +13,12 @@ class CreateV2SettingsTable extends Migration
      */
     public function up()
     {
+        // v2board 标准安装已带 v2_settings；从 v2b 升级时这次 migrate 会因此中止
+        // （"table already exists"），后面的迁移全不执行。
+        if (Schema::hasTable('v2_settings')) {
+            return;
+        }
+
         Schema::create('v2_settings', function (Blueprint $table) {
             $table->id();
             $table->string('group')->comment('设置分组')->nullable();

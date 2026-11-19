@@ -7,9 +7,20 @@ use Closure;
 
 class RequestLog
 {
+    /**
+     * 这些 GET 会返回明文密钥（网关私钥、机器 token、安装命令），必须留痕。
+     * 其余 GET 不记：后台轮询会把审计表撑成百万行，而它们只包含列表数据。
+     */
+    private const AUDITED_READ_PATHS = [
+        'payment/fetch',
+        'server/machine/getToken',
+        'server/machine/installCommand',
+    ];
+
     public function handle($request, Closure $next)
     {
-        if ($request->method() !== 'POST') {
+        $isWrite = $request->method() !== 'GET';
+        if (!$isWrite && !$this->isSensitiveRead($request->path())) {
             return $next($request);
         }
 
@@ -22,14 +33,15 @@ class RequestLog
             }
 
             $action = $this->resolveAction($request->path());
-            $data = self::scrub($request->all());
+            // GET 的 query 不落库：里面只有筛选条件，而请求体对读取没有意义。
+            $data = $isWrite ? self::scrub($request->all()) : null;
 
             AdminAuditLog::insert([
                 'admin_id' => $admin->id,
                 'action' => $action,
                 'method' => $request->method(),
                 'uri' => $request->getPathInfo(),
-                'request_data' => json_encode($data, JSON_UNESCAPED_UNICODE),
+                'request_data' => $data === null ? null : json_encode($data, JSON_UNESCAPED_UNICODE),
                 'ip' => $request->getClientIp(),
                 'created_at' => time(),
                 'updated_at' => time(),
@@ -39,6 +51,17 @@ class RequestLog
         }
 
         return $response;
+    }
+
+    private function isSensitiveRead(string $path): bool
+    {
+        foreach (self::AUDITED_READ_PATHS as $suffix) {
+            if (str_ends_with($path, $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

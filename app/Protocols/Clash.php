@@ -60,7 +60,9 @@ class Clash extends AbstractProtocol
                     'aes-128-gcm',
                     'aes-192-gcm',
                     'aes-256-gcm',
-                    'chacha20-ietf-poly1305'
+                    'chacha20-ietf-poly1305',
+                    // xchacha20 是 ServerSave 允许保存的 cipher，缺了它节点会静默消失
+                    'xchacha20-ietf-poly1305',
                 ])
             ) {
                 array_push($proxy, self::buildShadowsocks($item['password'], $item));

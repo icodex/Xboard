@@ -6,6 +6,7 @@ use App\Models\SubscribeTemplate;
 use App\Protocols\ClashMeta;
 use App\Protocols\General;
 use App\Protocols\QuantumultX;
+use App\Protocols\Shadowsocks;
 use App\Protocols\SingBox;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -205,6 +206,33 @@ class ProtocolOutputTest extends TestCase
 
         // every emitted node must also be selectable in the policy groups
         $this->assertStringContainsString('HK-SS, HK-VMess', $content);
+    }
+
+    public function test_shadowsocks_node_with_xchacha_cipher_is_not_dropped(): void
+    {
+        // ServerSave accepts xchacha20-ietf-poly1305; the builders used to filter it
+        // out, so the node simply vanished from those clients.
+        $server = [
+            'id' => 9,
+            'type' => 'shadowsocks',
+            'name' => 'XC-SS',
+            'host' => 'xc.example.com',
+            'port' => 8388,
+            'password' => 'psk',
+            'protocol_settings' => [
+                'cipher' => 'xchacha20-ietf-poly1305',
+                'obfs' => null,
+                'obfs_settings' => null,
+                'plugin' => null,
+                'plugin_opts' => null,
+            ],
+        ];
+
+        $sip008 = new Shadowsocks($this->user(), [$server], 'shadowsocks', '1.0', 'shadowsocks');
+        $config = json_decode($sip008->handle()->getContent(), true);
+
+        $this->assertSame('xc.example.com', $config['servers'][0]['server'] ?? null);
+        $this->assertSame('xchacha20-ietf-poly1305', $config['servers'][0]['method'] ?? null);
     }
 
     private function user(): array
