@@ -107,6 +107,18 @@ class ServerService
                         $ps['allow_insecure'] = true;
                     }
                 }
+                // 节点端不实现 SIP003 插件，也不接受 socks 走 TLS（xboard-node 的
+                // internal/model/validate.go 直接拒绝这两类节点）。存量行仍带着这些字段，
+                // 原样输出会让客户端按插件 / over-tls 去连一个明文服务，表现为
+                // "能导入、永远连不上"；这里与 buildNodeConfig 对齐，在下发前剥掉。
+                if ($server->type === 'shadowsocks') {
+                    foreach (['plugin', 'plugin_opts', 'obfs', 'obfs_settings'] as $legacyKey) {
+                        unset($ps[$legacyKey]);
+                    }
+                }
+                if ($server->type === 'socks') {
+                    $ps['tls'] = 0;
+                }
                 $server->protocol_settings = $ps;
             }
             return $server;
