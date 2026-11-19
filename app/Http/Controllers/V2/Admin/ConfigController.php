@@ -226,42 +226,47 @@ class ConfigController extends Controller
             'subscribe_template_surfboard' => 'surfboard',
         ];
 
-        foreach ($data as $k => $v) {
-            if (isset($templateKeys[$k])) {
-                SubscribeTemplate::setContent($templateKeys[$k], $v);
-                continue;
-            }
-            if ($k == 'frontend_theme') {
-                $themeService = app(ThemeService::class);
-                $themeService->switch($v);
-            }
-            if ($k !== 'reset_traffic_method') {
-                admin_setting([$k => $v]);
-                continue;
-            }
-
-            DB::table('v2_settings')->insertOrIgnore([
-                'name' => 'reset_traffic_policy_pending', 'value' => '',
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
-            $changed = DB::transaction(function () use ($k, $v) {
-                $pending = Setting::where('name', 'reset_traffic_policy_pending')->lockForUpdate()->firstOrFail();
-                $old = (int) (Setting::where('name', $k)->value('value') ?? config('v2board.reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY));
-                if ((int) $v === $old) {
-                    return false;
-                }
-                Setting::createOrUpdate($k, $v);
-                $pending->update(['value' => bin2hex(random_bytes(16))]);
-                return true;
-            });
-            if ($changed) {
-                DB::afterCommit(function () {
-                    Cache::store('redis')->forget(\App\Support\Setting::CACHE_KEY);
-                    app()->forgetInstance(\App\Support\Setting::class);
-                    app(TrafficResetService::class)->recalculatePendingSystemPolicy();
-                });
-            }
+        // 主题切换会抛（主题目录缺失）：放在最前面，失败就整个请求失败，
+        // 不留下"前面几十个键已写、后面没写"的半新半旧配置。
+        if (array_key_exists('frontend_theme', $data)) {
+            app(ThemeService::class)->switch($data['frontend_theme']);
+            unset($data['frontend_theme']);
         }
+
+        DB::transaction(function () use ($data, $templateKeys) {
+            foreach ($data as $k => $v) {
+                if (isset($templateKeys[$k])) {
+                    SubscribeTemplate::setContent($templateKeys[$k], $v);
+                    continue;
+                }
+                if ($k !== 'reset_traffic_method') {
+                    admin_setting([$k => $v]);
+                    continue;
+                }
+
+                DB::table('v2_settings')->insertOrIgnore([
+                    'name' => 'reset_traffic_policy_pending', 'value' => '',
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+                $changed = DB::transaction(function () use ($k, $v) {
+                    $pending = Setting::where('name', 'reset_traffic_policy_pending')->lockForUpdate()->firstOrFail();
+                    $old = (int) (Setting::where('name', $k)->value('value') ?? config('v2board.reset_traffic_method', Plan::RESET_TRAFFIC_MONTHLY));
+                    if ((int) $v === $old) {
+                        return false;
+                    }
+                    Setting::createOrUpdate($k, $v);
+                    $pending->update(['value' => bin2hex(random_bytes(16))]);
+                    return true;
+                });
+                if ($changed) {
+                    DB::afterCommit(function () {
+                        Cache::store('redis')->forget(\App\Support\Setting::CACHE_KEY);
+                        app()->forgetInstance(\App\Support\Setting::class);
+                        app(TrafficResetService::class)->recalculatePendingSystemPolicy();
+                    });
+                }
+            }
+        });
 
         return $this->success(true);
     }

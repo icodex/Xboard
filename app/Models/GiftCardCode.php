@@ -137,13 +137,23 @@ class GiftCardCode extends Model
 
     /**
      * 标记为已使用
+     *
+     * 多次可用的卡（max_usage > 1）第一次兑换后仍然可用，状态必须保持"未使用"，
+     * 否则后台把它显示成已用、`cleanupExpired()` 也不再清扫它（只扫 STATUS_UNUSED）。
+     * 兑换人只在首次写入，后续不覆盖。
      */
     public function markAsUsed(User $user): bool
     {
-        $this->status = self::STATUS_USED;
-        $this->user_id = $user->id;
-        $this->used_at = time();
         $this->usage_count += 1;
+
+        if ($this->usage_count >= $this->max_usage) {
+            $this->status = self::STATUS_USED;
+        }
+
+        if (!$this->user_id) {
+            $this->user_id = $user->id;
+            $this->used_at = time();
+        }
 
         return $this->save();
     }
@@ -271,16 +281,18 @@ class GiftCardCode extends Model
 
     /**
      * 清理过期兑换码
+     *
+     * 仍然可用的卡（还有剩余次数）才是清理对象：已用尽的卡状态是 STATUS_USED，
+     * 不需要再标过期；只扫 STATUS_UNUSED 会漏掉「兑换过但没用完」的卡。
      */
     public static function cleanupExpired(): int
     {
-        $count = self::where('status', self::STATUS_UNUSED)
+        $query = fn () => self::where('status', self::STATUS_UNUSED)
             ->where('expires_at', '<', time())
-            ->count();
+            ->whereColumn('usage_count', '<', 'max_usage');
 
-        self::where('status', self::STATUS_UNUSED)
-            ->where('expires_at', '<', time())
-            ->update(['status' => self::STATUS_EXPIRED]);
+        $count = $query()->count();
+        $query()->update(['status' => self::STATUS_EXPIRED]);
 
         return $count;
     }
