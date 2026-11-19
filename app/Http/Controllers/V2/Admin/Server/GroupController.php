@@ -29,9 +29,12 @@ class GroupController extends Controller
 
     public function save(Request $request)
     {
-        if (empty($request->input('name'))) {
-            return $this->fail([422, '组名不能为空']);
-        }
+        // find() 后直接赋属性：另一个管理员删掉该组后，这里会对 null 操作抛 Error（500）；
+        // 组名超过 varchar(255) 在严格模式同样是 500，不如校验拦下来。
+        $request->validate([
+            'id' => 'nullable|integer|exists:v2_server_group,id',
+            'name' => 'required|string|max:255',
+        ]);
 
         if ($request->input('id')) {
             $serverGroup = ServerGroup::find($request->input('id'));

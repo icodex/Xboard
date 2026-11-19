@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class CouponGenerate extends FormRequest
 {
@@ -24,7 +25,14 @@ class CouponGenerate extends FormRequest
             'limit_use_with_user' => 'nullable|integer',
             'limit_plan_ids' => 'nullable|array',
             'limit_period' => 'nullable|array',
-            'code' => ''
+            // 手填的 code 必须唯一：CouponService 用 where('code')->first() 取券，
+            // 两张同码会随机命中其中一张，折扣与核销统计对不上。
+            'code' => [
+                'nullable',
+                'string',
+                'max:32',
+                Rule::unique('v2_coupon', 'code')->ignore($this->input('id')),
+            ],
         ];
     }
 

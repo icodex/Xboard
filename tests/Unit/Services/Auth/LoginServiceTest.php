@@ -117,6 +117,28 @@ class LoginServiceTest extends TestCase
         $this->assertNull($this->service->generateQuickLoginUrl($user));
     }
 
+    public function test_a_legacy_md5_password_is_rewritten_to_password_hash_on_login(): void
+    {
+        $user = User::query()->create([
+            'email' => 'legacy-md5@example.com',
+            'password' => md5('legacy-password'),
+            'password_algo' => 'md5',
+            'uuid' => Helper::guid(true),
+            'token' => Helper::guid(true),
+            'created_at' => time(),
+            'updated_at' => time(),
+        ]);
+
+        [$success] = $this->service->login('legacy-md5@example.com', 'legacy-password', '127.0.0.1');
+
+        $this->assertTrue($success);
+
+        $user->refresh();
+        $this->assertNull($user->password_algo);
+        $this->assertNull($user->password_salt);
+        $this->assertTrue(password_verify('legacy-password', $user->password));
+    }
+
     private function createUser(string $email, string $password): User
     {
         return User::query()->create([

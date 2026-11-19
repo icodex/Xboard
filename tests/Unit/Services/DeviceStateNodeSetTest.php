@@ -75,10 +75,30 @@ class DeviceStateNodeSetTest extends TestCase
         $this->assertSame(0, $this->service->getDeviceCount(14));
     }
 
+    public function test_batch_write_keeps_the_same_set_and_count_semantics(): void
+    {
+        $this->service->setDevicesBatch(self::NODE, [
+            16 => ['1.2.3.4:111', '1.2.3.4'],   // port stripped, duplicate collapsed
+            17 => ['[::1]:443'],
+        ]);
+
+        $nodeUsers = $this->service->getNodeUserIds(self::NODE);
+        sort($nodeUsers);
+        $this->assertSame([16, 17], $nodeUsers);
+        $this->assertSame(1, $this->service->getDeviceCount(16));
+        $this->assertSame(['::1'], $this->service->getUsersDevices([17])[17]);
+
+        // an empty ip list removes that user from the node again
+        $this->service->setDevicesBatch(self::NODE, [16 => []]);
+
+        $this->assertSame([17], $this->service->getNodeUserIds(self::NODE));
+        $this->assertSame(0, $this->service->getDeviceCount(16));
+    }
+
     private function cleanup(): void
     {
         Redis::del('node_users:' . self::NODE, 'node_users:' . (self::NODE + 1));
-        foreach ([11, 12, 13, 14, 15] as $userId) {
+        foreach ([11, 12, 13, 14, 15, 16, 17] as $userId) {
             Redis::del('user_devices:' . $userId);
         }
     }

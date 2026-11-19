@@ -65,17 +65,27 @@ class CheckCommission extends Command
             ->where('invite_user_id', '!=', NULL)
             ->chunkById(500, function ($orders) {
                 foreach ($orders as $order) {
-                    // Never pay the same order twice. An admin can flip
-                    // commission_status back to 1 from the order screen, which used to
-                    // run payHandle() again and double the payout.
-                    if ((int) $order->actual_commission_balance > 0) {
-                        $order->commission_status = 2;
-                        $order->save();
-                        continue;
-                    }
-
                     try {
                         DB::beginTransaction();
+
+                        // Re-read under a lock: a manual `check:commission` while the
+                        // scheduler is running must not let both see the same unpaid row.
+                        $order = Order::whereKey($order->getKey())->lockForUpdate()->first();
+                        if (!$order) {
+                            DB::rollBack();
+                            continue;
+                        }
+
+                        // Never pay the same order twice. An admin can flip
+                        // commission_status back to 1 from the order screen, which used
+                        // to run payHandle() again and double the payout.
+                        if ((int) $order->actual_commission_balance > 0) {
+                            $order->commission_status = 2;
+                            $order->save();
+                            DB::commit();
+                            continue;
+                        }
+
                         if (!$this->payHandle($order->invite_user_id, $order)) {
                             DB::rollBack();
                             continue;

@@ -145,7 +145,7 @@ class ManageController extends Controller
     public function batchDelete(Request $request)
     {
         $request->validate([
-            'ids' => 'required|array',
+            'ids' => 'required|array|max:500',
             'ids.*' => 'integer',
         ]);
 
@@ -208,7 +208,7 @@ class ManageController extends Controller
     public function batchResetTraffic(Request $request)
     {
         $request->validate([
-            'ids' => 'required|array',
+            'ids' => 'required|array|max:500',
             'ids.*' => 'integer',
         ]);
 
@@ -245,7 +245,7 @@ class ManageController extends Controller
         }
 
         $params = $request->validate([
-            'ids' => 'required|array',
+            'ids' => 'required|array|max:500',
             'ids.*' => 'integer',
             'show' => 'nullable|integer|in:0,1',
             'enabled' => 'nullable|boolean',

@@ -85,6 +85,14 @@ class TicketController extends Controller
      */
     private function fetchTickets(Request $request)
     {
+        // 无校验时：reply_status=1（标量）会让 whereIn 抛 TypeError，status[]=1 会让
+        // 单值比较抛错，两者都是 500 而不是可读的参数错误。
+        $request->validate([
+            'status' => 'nullable|integer',
+            'reply_status' => 'nullable|array',
+            'reply_status.*' => 'integer',
+        ]);
+
         $ticketModel = Ticket::with('user')
             ->when($request->has('status'), function ($query) use ($request) {
                 $query->where('status', $request->input('status'));

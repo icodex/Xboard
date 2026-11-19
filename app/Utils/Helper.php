@@ -89,13 +89,22 @@ class Helper
 
     public static function multiPasswordVerify($algo, $salt, $password, $hash)
     {
+        $hash = (string) $hash;
         switch($algo) {
-            case 'md5': return md5($password) === $hash;
-            case 'sha256': return hash('sha256', $password) === $hash;
-            case 'md5salt': return md5($password . $salt) === $hash;
-            case 'sha256salt': return hash('sha256', $password . $salt) === $hash;
+            case 'md5': return hash_equals($hash, md5($password));
+            case 'sha256': return hash_equals($hash, hash('sha256', $password));
+            case 'md5salt': return hash_equals($hash, md5($password . $salt));
+            case 'sha256salt': return hash_equals($hash, hash('sha256', $password . $salt));
             default: return password_verify($password, $hash);
         }
+    }
+
+    /**
+     * 旧版（v2board 迁移）的哈希算法，登录成功时应重写为 password_hash。
+     */
+    public static function isLegacyPasswordAlgo($algo): bool
+    {
+        return in_array($algo, ['md5', 'md5salt', 'sha256', 'sha256salt'], true);
     }
 
     public static function emailSuffixVerify($email, $suffixs)

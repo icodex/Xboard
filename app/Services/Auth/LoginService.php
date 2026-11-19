@@ -73,6 +73,14 @@ class LoginService
         // 登录成功后清空计数，否则历史错误次数会一直累积到把本人锁在外面
         Cache::forget($passwordErrorKey);
 
+        // 迁移用户还停在无盐 md5/sha256：借这次已知明文重写为 password_hash 并清掉
+        // algo/salt，否则库一旦泄漏这批密码就是可秒级还原的明文。
+        if (Helper::isLegacyPasswordAlgo($user->password_algo)) {
+            $user->password = password_hash($password, PASSWORD_DEFAULT);
+            $user->password_algo = null;
+            $user->password_salt = null;
+        }
+
         // 更新最后登录时间
         $user->last_login_at = time();
         $user->save();

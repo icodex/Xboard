@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Utils\CacheKey;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 
 class DeviceStateService
@@ -30,6 +31,83 @@ class DeviceStateService
     public function getNodeUserIds(int $nodeId): array
     {
         return array_map('intval', Redis::smembers($this->nodeUsersKey($nodeId)) ?: []);
+    }
+
+    /**
+     * 批量设置一个节点上报的全部设备（HTTP /alive、WS report.devices）。
+     *
+     * 逐用户调用 setDevices() 时一次上报要付「用户数 × 约 8 次 Redis 往返」：
+     * 50 节点 × 500 在线用户 ≈ 每分钟 20 万次往返，全部压在 web 进程里。
+     * 这里把同样的语义压成固定 3 次往返（两次 pipeline + 一次批量 DB 刷新）。
+     *
+     * @param array<int|string, array<int, string>> $devices [userId => ips]
+     */
+    public function setDevicesBatch(int $nodeId, array $devices): void
+    {
+        if ($devices === []) {
+            return;
+        }
+
+        $timestamp = time();
+        $prefix = "{$nodeId}:";
+        $nodeUsersKey = $this->nodeUsersKey($nodeId);
+
+        $keys = [];
+        foreach (array_keys($devices) as $uid) {
+            $keys[(int) $uid] = self::PREFIX . (int) $uid;
+        }
+        $userIds = array_keys($keys);
+
+        // round trip 1: which fields of each user belong to this node
+        $existing = Redis::pipeline(function ($pipe) use ($keys) {
+            foreach ($keys as $key) {
+                $pipe->hkeys($key);
+            }
+        });
+
+        $stale = [];
+        $writes = [];
+        foreach ($userIds as $index => $userId) {
+            $fields = [];
+            foreach ($existing[$index] ?? [] as $field) {
+                if (str_starts_with($field, $prefix)) {
+                    $fields[] = $field;
+                }
+            }
+            if ($fields !== []) {
+                $stale[$userId] = $fields;
+            }
+
+            $ips = array_values(array_unique(array_map([self::class, 'normalizeIP'], (array) ($devices[$userId] ?? []))));
+            if ($ips !== []) {
+                $newFields = [];
+                foreach ($ips as $ip) {
+                    $newFields["{$prefix}{$ip}"] = $timestamp;
+                }
+                $writes[$userId] = $newFields;
+            }
+        }
+
+        // round trip 2: apply the removals, the new fields and the node's user set
+        Redis::pipeline(function ($pipe) use ($stale, $writes, $keys, $nodeUsersKey, $userIds) {
+            foreach ($stale as $userId => $fields) {
+                $pipe->hdel($keys[$userId], ...$fields);
+            }
+            foreach ($userIds as $userId) {
+                if (!isset($writes[$userId])) {
+                    $pipe->srem($nodeUsersKey, $userId);
+                    continue;
+                }
+                $pipe->hmset($keys[$userId], $writes[$userId]);
+                $pipe->expire($keys[$userId], self::TTL);
+                $pipe->sadd($nodeUsersKey, $userId);
+            }
+            if ($writes !== []) {
+                $pipe->expire($nodeUsersKey, self::TTL);
+            }
+        });
+
+        $this->notifyUpdateBatch($userIds);
     }
 
     /**
@@ -199,6 +277,57 @@ class DeviceStateService
             return $m[1];
         }
         return $ip;
+    }
+
+    /**
+     * notify update for many users: same per-user throttle, but one pipeline for the
+     * device hashes and one batched UPDATE per 500 users instead of a query per user.
+     */
+    public function notifyUpdateBatch(array $userIds): void
+    {
+        $userIds = array_values(array_unique(array_map('intval', $userIds)));
+        if ($userIds === []) {
+            return;
+        }
+
+        $due = [];
+        foreach ($userIds as $userId) {
+            if (Cache::add(CacheKey::get('DEVICE_DB_THROTTLE', $userId), 1, self::DB_THROTTLE)) {
+                $due[] = $userId;
+            }
+        }
+        if ($due === []) {
+            return;
+        }
+
+        $responses = Redis::pipeline(function ($pipe) use ($due) {
+            foreach ($due as $userId) {
+                $pipe->hgetall(self::PREFIX . $userId);
+            }
+        });
+
+        $counts = [];
+        foreach ($due as $index => $userId) {
+            $counts[$userId] = count($this->activeIps($responses[$index] ?? []));
+        }
+
+        $now = now();
+        foreach (array_chunk($counts, 500, true) as $chunk) {
+            $cases = '';
+            $bindings = [];
+            foreach ($chunk as $userId => $count) {
+                $cases .= ' WHEN ? THEN ?';
+                $bindings[] = $userId;
+                $bindings[] = $count;
+            }
+            $ids = implode(',', array_map('intval', array_keys($chunk)));
+            DB::update(
+                'UPDATE ' . (new User())->getTable()
+                . ' SET online_count = CASE id' . $cases . ' ELSE online_count END, last_online_at = ?'
+                . ' WHERE id IN (' . $ids . ')',
+                array_merge($bindings, [$now])
+            );
+        }
     }
 
     /**

@@ -101,7 +101,9 @@ class SystemController extends Controller
     public function getAuditLog(Request $request)
     {
         $current = max(1, (int) $request->input('current', 1));
-        $pageSize = max(10, (int) $request->input('page_size', 10));
+        // perPage(): the base controller clamps to 200; without it, page_size=99999999
+        // instantiates the whole 90-day audit table (request_data is TEXT) and OOMs a worker.
+        $pageSize = $this->perPage($request, 10, 200);
 
         $builder = AdminAuditLog::with('admin:id,email')
             ->orderBy('id', 'DESC')
@@ -123,7 +125,7 @@ class SystemController extends Controller
     public function getHorizonFailedJobs(Request $request, JobRepository $jobRepository)
     {
         $current = max(1, (int) $request->input('current', 1));
-        $pageSize = max(10, (int) $request->input('page_size', 20));
+        $pageSize = $this->perPage($request, 20, 200);
         $offset = ($current - 1) * $pageSize;
 
         $failedJobs = collect($jobRepository->getFailed())

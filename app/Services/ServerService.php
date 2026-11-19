@@ -178,10 +178,9 @@ class ServerService
      */
     public static function processAlive(int $nodeId, array $alive): void
     {
-        $service = app(DeviceStateService::class);
-        foreach ($alive as $uid => $ips) {
-            $service->setDevices((int) $uid, $nodeId, (array) $ips);
-        }
+        // 一个节点一次上报带着它全部的在线用户：逐用户调用要付 用户数 × 8 次
+        // Redis 往返，几十节点就是每秒数千次往返压在 web 进程里。
+        app(DeviceStateService::class)->setDevicesBatch($nodeId, $alive);
     }
 
     /**

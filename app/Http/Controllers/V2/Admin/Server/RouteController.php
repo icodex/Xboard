@@ -35,7 +35,7 @@ class RouteController extends Controller
         // TODO: remove on 1.8.0
         if ($request->input('id')) {
             try {
-                $route = ServerRoute::find($request->input('id'));
+                $route = ServerRoute::findOrFail($request->input('id'));
                 $route->update($params);
                 return $this->success(true);
             } catch (\Exception $e) {

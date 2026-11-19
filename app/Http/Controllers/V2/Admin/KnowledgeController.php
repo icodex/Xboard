@@ -29,7 +29,9 @@ class KnowledgeController extends Controller
 
     public function getCategory(Request $request)
     {
-        return $this->success(array_keys(Knowledge::get()->groupBy('category')->toArray()));
+        return $this->success(
+            Knowledge::query()->select('category')->distinct()->orderBy('category')->pluck('category')->all()
+        );
     }
 
     public function save(KnowledgeSave $request)
@@ -82,7 +84,9 @@ class KnowledgeController extends Controller
         try {
             DB::beginTransaction();
             foreach ($request->input('ids') as $k => $v) {
-                $knowledge = Knowledge::find($v);
+                // findOrFail: a stale id must abort the sort (ModelNotFoundException
+                // is an Exception, so the existing catch rolls back), not blow up on null.
+                $knowledge = Knowledge::findOrFail($v);
                 $knowledge->timestamps = false;
                 $knowledge->update(['sort' => $k + 1]);
             }
