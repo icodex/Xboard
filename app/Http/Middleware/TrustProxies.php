@@ -8,10 +8,13 @@ use Illuminate\Http\Request;
 class TrustProxies extends Middleware
 {
     /**
-     * 可信代理列表
-     * @var array<int, string>|string|null
+     * 历史默认列表（Cloudflare 段 + 私网段）。
+     *
+     * 保持原样：现有部署的行为零变化。注意私网段意味着同网段任意主机都能自带
+     * X-Forwarded-For 伪造客户端 IP，从而绕过登录限流与审计 IP。
+     * 把实际前置代理写进 TRUSTED_PROXIES（逗号分隔）即可收紧。
      */
-    protected $proxies = [
+    private const DEFAULT_PROXIES = [
         "173.245.48.0/20",
         "103.21.244.0/22",
         "103.22.200.0/22",
@@ -33,6 +36,18 @@ class TrustProxies extends Middleware
         "169.254.0.0/16",
         "127.0.0.0/8",
     ];
+
+    /**
+     * 可信代理列表：未配置时用上面的历史默认值。
+     * @var array<int, string>|string|null
+     */
+    protected $proxies;
+
+    public function __construct()
+    {
+        $configured = config('app.trusted_proxies');
+        $this->proxies = !empty($configured) ? $configured : self::DEFAULT_PROXIES;
+    }
 
     /**
      * 代理头映射
