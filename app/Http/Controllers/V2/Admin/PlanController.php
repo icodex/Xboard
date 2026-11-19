@@ -50,6 +50,8 @@ class PlanController extends Controller
                         'speed_limit' => $params['speed_limit'],
                         'device_limit' => $params['device_limit'],
                     ]);
+                    // 批量 update 不走 Eloquent 事件：显式递增名单版本，节点才会收到新名单
+                    NodeSyncService::bumpUsersVersion();
                     DB::afterCommit(fn () => NodeSyncService::reconcileAll());
                 }
                 $plan->update($params);

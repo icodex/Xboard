@@ -4,6 +4,7 @@ namespace App\Services\Plugin;
 
 use App\Models\Plugin;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\View;
@@ -626,7 +627,13 @@ class PluginManager
             return;
         }
 
-        $enabledPlugins = Plugin::where('is_enabled', true)->get();
+        // 全局中间件每个请求都走这里：不缓存等于每请求一次 v2_plugins 查询。
+        // 写入路径（Plugin::saved/deleted）会清掉这个键，不会出现"启用后不生效"。
+        $enabledPlugins = Cache::remember(
+            Plugin::ENABLED_CACHE_KEY,
+            3600,
+            fn () => Plugin::where('is_enabled', true)->get()
+        );
 
         foreach ($enabledPlugins as $dbPlugin) {
             try {

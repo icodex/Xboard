@@ -253,6 +253,9 @@ class OrderController extends Controller
                     return $order;
                 }
                 if ((int) $order->status === Order::STATUS_PROCESSING) {
+                    // 已付款但开单卡住（套餐被删、hook 一直抛异常）：check:order 只在
+                    // 24h 内重投，之后订单永远停在"开通中"。这里给管理员一个重试出口。
+                    DB::afterCommit(fn () => \App\Jobs\OrderHandleJob::dispatch($order->trade_no));
                     return $order;
                 }
                 if ((int) $order->status !== Order::STATUS_CANCELLED || $order->paid_at === null) {

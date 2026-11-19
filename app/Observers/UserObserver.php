@@ -4,9 +4,8 @@ namespace App\Observers;
 
 use App\Jobs\NodeUserSyncJob;
 use App\Models\User;
+use App\Services\NodeSyncService;
 use App\Services\TrafficResetService;
-use App\Utils\CacheKey;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class UserObserver
@@ -65,10 +64,7 @@ class UserObserver
    */
   private function bumpNodeUserCacheVersion(): void
   {
-    $key = CacheKey::get('SERVER_USERS_VERSION');
-    if (Cache::increment($key) === false) {
-      Cache::forever($key, 1);
-    }
+    NodeSyncService::bumpUsersVersion();
   }
 
   /**

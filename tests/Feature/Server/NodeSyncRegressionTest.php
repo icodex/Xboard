@@ -46,6 +46,62 @@ class NodeSyncRegressionTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_users_push_is_skipped_until_the_version_changes(): void
+    {
+        $server = $this->server([1]);
+        $this->user('skip@example.com');
+        Cache::put(CacheKey::get("NODE_WS_ALIVE_{$server->id}"), true, 60);
+        Cache::put(CacheKey::get('SERVER_USERS_VERSION'), 7);
+
+        $events = [];
+        Redis::shouldReceive('publish')->times(5)->andReturnUsing(function ($channel, $message) use (&$events) {
+            $events[] = json_decode($message, true)['event'];
+
+            return 1;
+        });
+
+        $job = new NodeFullSyncJob($server->id);
+        $job->handle();
+        $job->handle(); // 名单和版本都没变：只重推 config
+        Cache::put(CacheKey::get('SERVER_USERS_VERSION'), 8);
+        $job->handle();
+
+        $this->assertSame(
+            ['sync.config', 'sync.users', 'sync.config', 'sync.config', 'sync.users'],
+            $events
+        );
+    }
+
+    public function test_a_push_that_reached_no_subscriber_is_retried_next_round(): void
+    {
+        $server = $this->server([1]);
+        $this->user('lost@example.com');
+        Cache::put(CacheKey::get("NODE_WS_ALIVE_{$server->id}"), true, 60);
+        Cache::put(CacheKey::get('SERVER_USERS_VERSION'), 9);
+
+        $events = [];
+        // ws-server 不在：publish 投递给 0 个订阅者，不能记成"已同步"
+        Redis::shouldReceive('publish')->andReturnUsing(function ($channel, $message) use (&$events) {
+            $events[] = json_decode($message, true)['event'];
+
+            return 0;
+        });
+        (new NodeFullSyncJob($server->id))->handle();
+
+        $this->assertSame(['sync.config', 'sync.users'], $events);
+
+        // 下一轮送达成功：因为上一轮没写标记，users 会再推一次
+        $events = [];
+        Redis::shouldReceive('publish')->andReturnUsing(function ($channel, $message) use (&$events) {
+            $events[] = json_decode($message, true)['event'];
+
+            return 1;
+        });
+        (new NodeFullSyncJob($server->id))->handle();
+
+        $this->assertSame(['sync.config', 'sync.users'], $events);
+    }
+
     private function user(string $email, array $extra = []): User
     {
         return User::create(array_merge([
@@ -160,7 +216,7 @@ class NodeSyncRegressionTest extends TestCase
         $this->assertSame(['remove', 'remove'], array_column(array_column($published, 'data'), 'action'));
     }
 
-    public function test_reconciliation_sends_current_users_and_invalidates_cached_payload(): void
+    public function test_reconciliation_pushes_current_users_without_bumping_the_version(): void
     {
         $server = $this->server([1]);
         $this->user('expired@example.com', ['expired_at' => time() - 1]);
@@ -170,11 +226,15 @@ class NodeSyncRegressionTest extends TestCase
         Cache::put($key, 10);
         Bus::fake();
         NodeSyncService::reconcileAll();
-        $this->assertSame(11, (int) Cache::get($key));
+        // 版本号只由名单变化（Observer 或显式 bump）推进：无条件递增会让
+        // NodeFullSyncJob 的"版本没变就跳过"永远不成立
+        $this->assertSame(10, (int) Cache::get($key));
         Bus::assertDispatched(NodeFullSyncJob::class);
         $published = [];
         Redis::shouldReceive('publish')->twice()->andReturnUsing(function ($channel, $message) use (&$published) {
             $published[] = json_decode($message, true);
+
+            return 1;
         });
         (new NodeFullSyncJob($server->id))->handle();
         $this->assertSame('vmess', collect($published)->firstWhere('event', 'sync.config')['data']['config']['protocol']);

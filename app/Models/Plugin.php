@@ -49,6 +49,20 @@ class Plugin extends Model
         'is_enabled' => 'boolean',
     ];
 
+    /**
+     * 启用插件列表的缓存键：全局中间件每个请求都要读它，不缓存就是每请求一次查询。
+     * 任何写入都清掉，避免"刚启用却要等缓存过期才生效"。
+     */
+    public const ENABLED_CACHE_KEY = 'plugins:enabled';
+
+    protected static function booted(): void
+    {
+        $flush = static fn () => \Illuminate\Support\Facades\Cache::forget(self::ENABLED_CACHE_KEY);
+
+        static::saved($flush);
+        static::deleted($flush);
+    }
+
     public function scopeByType(Builder $query, string $type): Builder
     {
         return $query->where('type', $type);

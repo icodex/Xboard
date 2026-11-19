@@ -251,6 +251,9 @@ class NodeWorker
         NodeRegistry::add($nodeId, $conn);
         Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"), true, 86400);
 
+        // 重连后一律全量推一次：上次的"已推送"标记可能对应一条丢失的广播。
+        Cache::forget(CacheKey::get('NODE_USERS_SYNCED', $nodeId));
+
         // No clearAllNodeDevices() here: it walks every user of the node (hkeys/hdel
         // per user) inside the Workerman event loop. On a deploy all nodes reconnect
         // at once, which blocked the loop long enough to time out their heartbeats and
@@ -304,6 +307,8 @@ class NodeWorker
         foreach ($nodes as $node) {
             NodeRegistry::add($node->id, $conn);
             Cache::put(CacheKey::get("NODE_WS_ALIVE_{$node->id}"), true, 86400);
+            // 见单节点路径：重连后清掉同步标记，保证重连后一定收到全量名单
+            Cache::forget(CacheKey::get('NODE_USERS_SYNCED', $node->id));
             // See the single-node path above: clearing every user's device fields here
             // blocks the WS loop during a reconnect storm.
             $nodeIds[] = $node->id;

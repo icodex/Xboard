@@ -784,6 +784,9 @@ class UserController extends Controller
             DB::transaction(function () use ($builder): void {
                 $ids = (clone $builder)->reorder()->lockForUpdate()->pluck('id');
                 $builder->update(['banned' => 1]);
+                // 查询构造器 update 不触发 Eloquent 事件：必须显式递增名单版本，
+                // 否则 NodeFullSyncJob 认为名单没变，被封用户会留在节点上。
+                NodeSyncService::bumpUsersVersion();
                 DB::afterCommit(fn () => NodeSyncService::reconcileAll());
                 foreach ($ids->chunk(500) as $chunk) {
                     \Laravel\Sanctum\PersonalAccessToken::where('tokenable_type', (new User())->getMorphClass())

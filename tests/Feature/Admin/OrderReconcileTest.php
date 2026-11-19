@@ -46,6 +46,21 @@ class OrderReconcileTest extends TestCase
         $this->assertNotNull($order->refunded_at);
     }
 
+    public function test_complete_retries_a_stuck_processing_order(): void
+    {
+        Queue::fake();
+        $order = $this->cancelledPaidOrder(['status' => Order::STATUS_PROCESSING]);
+
+        $response = (new OrderController())->reconcile(Request::create('/', 'POST', [
+            'trade_no' => $order->trade_no,
+            'action' => 'complete',
+        ]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        // stuck in "processing" past the 24h retry window: the admin needs an exit
+        Queue::assertPushed(OrderHandleJob::class);
+    }
+
     private function cancelledPaidOrder(array $orderOverrides = [], int $userBalance = 0): Order
     {
         $user = User::create([

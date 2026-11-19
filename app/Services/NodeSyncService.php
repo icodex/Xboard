@@ -13,13 +13,25 @@ use Illuminate\Support\Facades\Redis;
 
 class NodeSyncService
 {
-    public static function reconcileAll(): void
+    /**
+     * 递增节点用户名单版本号。
+     *
+     * 这是 NodeFullSyncJob 判断"名单有没有变"的唯一信号，所以任何影响名单的写都必须
+     * 走到：Eloquent 事件由 UserObserver/ServerObserver 覆盖；绕过事件的批量写
+     * （查询构造器 update/delete）必须在调用点显式调本方法，否则节点会继续用旧名单。
+     */
+    public static function bumpUsersVersion(): void
     {
         $key = CacheKey::get('SERVER_USERS_VERSION');
         if (Cache::increment($key) === false) {
             Cache::forever($key, 1);
         }
+    }
 
+    public static function reconcileAll(): void
+    {
+        // 版本号只在名单真的变化时由 UserObserver/ServerObserver bump。
+        // 这里原来每 5 分钟无条件 +1，等于让"版本没变就跳过全量推送"永远不成立。
         Server::select('id')->chunkById(200, function ($servers) {
             foreach ($servers as $server) {
                 if (self::isNodeOnline($server->id)) {
@@ -151,19 +163,23 @@ class NodeSyncService
     /**
      * Publish a push command to Redis — picked up by the Workerman WS server
      */
-    public static function push(int $nodeId, string $event, array $data): void
+    public static function push(int $nodeId, string $event, array $data): bool
     {
         try {
-            Redis::publish('node:push', json_encode([
+            // publish 返回接收到消息的订阅者数量：0 说明 ws-server 不在（或还没订阅），
+            // 调用方据此决定是否记录"已推送"标记，避免把丢失当成送达。
+            return (int) Redis::publish('node:push', json_encode([
                 'node_id' => $nodeId,
                 'event' => $event,
                 'data' => $data,
-            ]));
+            ])) > 0;
         } catch (\Throwable $e) {
             Log::warning("[NodePush] Redis publish failed: {$e->getMessage()}", [
                 'node_id' => $nodeId,
                 'event' => $event,
             ]);
+
+            return false;
         }
     }
 
