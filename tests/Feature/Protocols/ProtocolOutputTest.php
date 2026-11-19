@@ -6,10 +6,14 @@ use App\Models\SubscribeTemplate;
 use App\Protocols\Clash;
 use App\Protocols\ClashMeta;
 use App\Protocols\General;
+use App\Protocols\Loon;
 use App\Protocols\QuantumultX;
+use App\Protocols\Shadowrocket;
 use App\Protocols\Shadowsocks;
 use App\Protocols\SingBox;
+use App\Protocols\Stash;
 use App\Protocols\Surge;
+use App\Protocols\Surfboard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
@@ -313,6 +317,47 @@ class ProtocolOutputTest extends TestCase
         $surge = (new Surge($this->user(), $servers, 'surge', '5.0.0', 'surge'))->handle()->getContent();
         $this->assertStringNotContainsString('REALITY-NODE', $surge);
         $this->assertStringContainsString('PLAIN-TLS-NODE', $surge);
+    }
+
+    public function test_every_shadowsocks_builder_emits_the_configured_cipher(): void
+    {
+        // These five formats had no output test at all: a cipher added to ServerSave
+        // (xchacha20-ietf-poly1305) was silently dropped from their whitelists.
+        $server = [
+            'id' => 31,
+            'type' => 'shadowsocks',
+            'name' => 'FORMAT-SS',
+            'host' => 'fmt.example.com',
+            'port' => 8388,
+            'password' => 'psk',
+            '_fp_seed' => 'seed',
+            'protocol_settings' => [
+                'cipher' => 'xchacha20-ietf-poly1305',
+                'obfs' => null,
+                'obfs_settings' => null,
+                'plugin' => null,
+                'plugin_opts' => null,
+            ],
+        ];
+
+        $clash = Clash::buildShadowsocks('psk', $server);
+        $this->assertSame('ss', $clash['type']);
+        $this->assertSame('xchacha20-ietf-poly1305', $clash['cipher']);
+
+        $stash = Stash::buildShadowsocks('psk', $server);
+        $this->assertSame('xchacha20-ietf-poly1305', $stash['cipher']);
+
+        $surfboard = Surfboard::buildShadowsocks('psk', $server);
+        $this->assertStringContainsString('xchacha20-ietf-poly1305', $surfboard);
+
+        // ss:// URI 把 method:password 放在 base64 里
+        $shadowrocket = trim((string) Shadowrocket::buildShadowsocks('psk', $server));
+        $payload = str_starts_with($shadowrocket, 'ss://') ? substr($shadowrocket, 5) : $shadowrocket;
+        $userInfo = base64_decode(explode('@', $payload)[0] ?? '', true);
+        $this->assertStringContainsString('xchacha20-ietf-poly1305', (string) $userInfo);
+
+        $loon = Loon::buildShadowsocks('psk', $server);
+        $this->assertStringContainsString('xchacha20-ietf-poly1305', implode(',', (array) $loon));
     }
 
     private function user(): array
