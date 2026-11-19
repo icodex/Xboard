@@ -47,26 +47,31 @@ class StatUserJob implements ShouldQueue
     {
         $recordAt = strtotime(date('Y-m-d'));
 
-        if (config('database.default') === 'sqlite') {
-            foreach ($this->data as $uid => $v) {
-                $this->processUserStatForSqlite($uid, $v, $recordAt);
-            }
-            return;
-        }
-
-        // one multi-row upsert per 500 users instead of one statement each
-        foreach (array_chunk($this->data, 500, true) as $chunk) {
-            try {
-                if (config('database.default') === 'pgsql') {
-                    $this->processUserStatForPostgres($chunk, $recordAt);
-                } else {
-                    $this->processUserStatForOtherDatabases($chunk, $recordAt);
+        // A retry replays handle() from the first chunk, so the report must commit or
+        // roll back as one unit; otherwise the leading chunks are counted twice as
+        // soon as a later chunk fails.
+        DB::transaction(function () use ($recordAt) {
+            if (config('database.default') === 'sqlite') {
+                foreach ($this->data as $uid => $v) {
+                    $this->processUserStatForSqlite($uid, $v, $recordAt);
                 }
-            } catch (\Exception $e) {
-                Log::error('StatUserJob failed: ' . $e->getMessage());
-                throw $e;
+                return;
             }
-        }
+
+            // one multi-row upsert per 500 users instead of one statement each
+            foreach (array_chunk($this->data, 500, true) as $chunk) {
+                try {
+                    if (config('database.default') === 'pgsql') {
+                        $this->processUserStatForPostgres($chunk, $recordAt);
+                    } else {
+                        $this->processUserStatForOtherDatabases($chunk, $recordAt);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('StatUserJob failed: ' . $e->getMessage());
+                    throw $e;
+                }
+            }
+        });
     }
 
     /**

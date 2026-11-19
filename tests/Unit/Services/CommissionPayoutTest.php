@@ -55,6 +55,37 @@ class CommissionPayoutTest extends TestCase
         $this->assertSame(0, CommissionLog::where('trade_no', $order->trade_no)->count());
     }
 
+    public function test_a_zero_share_level_skips_payout_without_paying_the_next_level_to_the_same_upline(): void
+    {
+        admin_setting([
+            'commission_distribution_enable' => 1,
+            // level 1 left unconfigured -> share 0
+            'commission_distribution_l1' => 0,
+            'commission_distribution_l2' => 20,
+            'commission_distribution_l3' => 10,
+            'withdraw_close_enable' => 0,
+        ]);
+
+        $l1 = $this->makeUser('skip-l1@example.com', '00000000-0000-0000-0000-0000000000e4');
+        $l2 = $this->makeUser('skip-l2@example.com', '00000000-0000-0000-0000-0000000000e5');
+        $l3 = $this->makeUser('skip-l3@example.com', '00000000-0000-0000-0000-0000000000e6');
+
+        $l1->invite_user_id = $l2->id;
+        $l1->save();
+        $l2->invite_user_id = $l3->id;
+        $l2->save();
+
+        $buyer = $this->makeUser('skip-buyer@example.com', '00000000-0000-0000-0000-0000000000e7');
+        $order = $this->makeOrder($buyer, $l1, ['commission_balance' => 100]);
+
+        $this->artisan('check:commission')->assertExitCode(0);
+
+        // share 0 means "this level pays nobody", not "keep paying the same upline"
+        $this->assertSame(0, (int) $l1->fresh()->commission_balance);
+        $this->assertSame(20, (int) $l2->fresh()->commission_balance);
+        $this->assertSame(10, (int) $l3->fresh()->commission_balance);
+    }
+
     private function makeUser(string $email, string $uuid): User
     {
         return User::create([

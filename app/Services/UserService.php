@@ -86,6 +86,15 @@ class UserService
 
     public function trafficFetch(Server $server, string $protocol, array $data)
     {
+        // A node may only report traffic for users it is allowed to serve. Every node
+        // shares one token, so without this filter any single compromised node could
+        // inflate the usage of an arbitrary user id and get them cut off by
+        // check:traffic-exceeded.
+        $data = $this->onlyUsersOfNode($server, $data);
+        if (empty($data)) {
+            return;
+        }
+
         $server->rate = $server->getCurrentRate();
         $server = $server->toArray();
 
@@ -99,6 +108,31 @@ class UserService
             StatUserJob::dispatch($server, $chunk->toArray(), $protocol);
             StatServerJob::dispatch($server, $chunk->toArray(), $protocol);
         });
+    }
+
+    /**
+     * Keep only the reported entries whose user belongs to one of this node's groups.
+     * A node with no groups serves nobody (getAvailableUsers returns an empty set),
+     * so nothing is accepted for it either.
+     *
+     * @param array<int|string, array{0:int|float,1:int|float}> $data
+     * @return array<int|string, array{0:int|float,1:int|float}>
+     */
+    private function onlyUsersOfNode(Server $server, array $data): array
+    {
+        $groupIds = array_values(array_filter(array_map('intval', (array) ($server->group_ids ?? []))));
+        if (empty($groupIds) || empty($data)) {
+            return [];
+        }
+
+        $allowed = [];
+        foreach (array_chunk(array_map('intval', array_keys($data)), 500) as $ids) {
+            foreach (User::query()->whereIn('id', $ids)->whereIn('group_id', $groupIds)->pluck('id') as $id) {
+                $allowed[(int) $id] = true;
+            }
+        }
+
+        return array_intersect_key($data, $allowed);
     }
 
     /**

@@ -75,10 +75,9 @@ class QuantumultX extends AbstractProtocol
 
         $proxies = '';
         $proxyGroup = '';
-        $uri = '';
 
         foreach ($servers as $item) {
-            $uri .= match ($item['type']) {
+            $line = match ($item['type']) {
                 Server::TYPE_SHADOWSOCKS => self::buildShadowsocks($item['password'], $item),
                 Server::TYPE_VMESS => self::buildVmess($item['password'], $item),
                 Server::TYPE_VLESS => self::buildVless($item['password'], $item),
@@ -88,6 +87,12 @@ class QuantumultX extends AbstractProtocol
                 Server::TYPE_HTTP => self::buildHttp($item['password'], $item),
                 default => ''
             };
+            // A builder that emits nothing must not leave a dangling policy reference.
+            if ($line === '') {
+                continue;
+            }
+            $proxies .= $line;
+            $proxyGroup .= $item['name'] . ', ';
         }
         $config = admin_setting('subscribe_template_quantumultx', File::exists(base_path(self::CUSTOM_TEMPLATE_FILE))
             ? File::get(base_path(self::CUSTOM_TEMPLATE_FILE))

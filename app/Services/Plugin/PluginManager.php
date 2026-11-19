@@ -85,8 +85,12 @@ class PluginManager
         if (!class_exists($pluginClass, false)) {
             $pluginFile = $this->getPluginPath($pluginCode) . '/Plugin.php';
             if (!File::exists($pluginFile)) {
+                // Never delete the row here. This runs on every HTTP request through
+                // the global InitializePlugins middleware, so a file that is briefly
+                // missing (upload/upgrade swap, volume not mounted yet) would wipe the
+                // plugin row and its config - including gateway keys - from anonymous
+                // traffic. Only an explicit uninstall may remove rows.
                 Log::warning("Plugin class file not found: {$pluginFile}");
-                Plugin::query()->where('code', $pluginCode)->delete();
                 return null;
             }
             require_once $pluginFile;
@@ -586,13 +590,23 @@ class PluginManager
             if (version_compare($newVersion, $oldVersion, '<=')) {
                 throw new \Exception('上传插件版本不高于已安装版本，无法升级');
             }
-
-            File::deleteDirectory($targetPath);
         }
 
-        File::copyDirectory($pluginPath, $targetPath);
-        File::deleteDirectory($pluginPath);
+        // Build the new copy beside the target and rename it into place, instead of
+        // deleting the live directory and copying into it. That window used to leave
+        // the plugin absent for the whole copy, long enough for a request to hit it.
+        $stagingPath = $targetPath . '.staging-' . uniqid();
+        File::copyDirectory($pluginPath, $stagingPath);
         File::deleteDirectory($extractPath);
+
+        if (File::exists($targetPath)) {
+            $backupPath = $targetPath . '.old-' . uniqid();
+            File::moveDirectory($targetPath, $backupPath);
+            File::moveDirectory($stagingPath, $targetPath);
+            File::deleteDirectory($backupPath);
+        } else {
+            File::moveDirectory($stagingPath, $targetPath);
+        }
 
         if (Plugin::where('code', $config['code'])->exists()) {
             return $this->update($config['code']);

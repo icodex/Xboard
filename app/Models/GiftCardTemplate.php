@@ -35,6 +35,18 @@ class GiftCardTemplate extends Model
     const TYPE_PLAN = 2;            // 套餐礼品卡
     const TYPE_MYSTERY = 3;         // 盲盒礼品卡
 
+    /**
+     * 节日倍率只作用于“数量”类奖励。
+     * plan_id 是套餐标识、invite_reward_rate 是比例、reset_package 是开关：
+     * 对它们做 intval(value * bonus) 会把用户切到别的套餐、把邀请佣金算成 0。
+     */
+    private const BONUS_ELIGIBLE_REWARDS = [
+        'balance',
+        'transfer_enable',
+        'device_limit',
+        'expire_days',
+    ];
+
     protected $fillable = [
         'name',
         'description',
@@ -203,12 +215,11 @@ class GiftCardTemplate extends Model
                 if ($now >= $festivalConfig['start_time'] && $now <= $festivalConfig['end_time']) {
                     $bonus = data_get($festivalConfig, 'festival_bonus', 1.0);
                     if ($bonus > 1.0) {
-                        foreach ($actualRewards as $key => &$value) {
-                            if (is_numeric($value)) {
-                                $value = intval($value * $bonus);
+                        foreach (self::BONUS_ELIGIBLE_REWARDS as $key) {
+                            if (isset($actualRewards[$key]) && is_numeric($actualRewards[$key])) {
+                                $actualRewards[$key] = (int) round($actualRewards[$key] * $bonus);
                             }
                         }
-                        unset($value); // 解除引用
                     }
                 }
             }

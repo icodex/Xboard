@@ -65,6 +65,15 @@ class CheckCommission extends Command
             ->where('invite_user_id', '!=', NULL)
             ->chunkById(500, function ($orders) {
                 foreach ($orders as $order) {
+                    // Never pay the same order twice. An admin can flip
+                    // commission_status back to 1 from the order screen, which used to
+                    // run payHandle() again and double the payout.
+                    if ((int) $order->actual_commission_balance > 0) {
+                        $order->commission_status = 2;
+                        $order->save();
+                        continue;
+                    }
+
                     try {
                         DB::beginTransaction();
                         if (!$this->payHandle($order->invite_user_id, $order)) {
@@ -87,6 +96,11 @@ class CheckCommission extends Command
 
     public function payHandle($inviteUserId, Order $order)
     {
+        // A paid order must never be paid again by any caller.
+        if ((int) $order->actual_commission_balance > 0) {
+            return false;
+        }
+
         $level = 3;
         if ((int)admin_setting('commission_distribution_enable', 0)) {
             $commissionShareLevels = [
@@ -103,6 +117,11 @@ class CheckCommission extends Command
             $inviter = User::find($inviteUserId);
             // 邀请链断了就没必要继续往上找：下面每层用的还是同一个 id
             if (!$inviter) break;
+
+            // 先推进到上一级，再判断本层发不发钱：份额为 0（未配置 / 取整为 0）
+            // 只表示“这一层不发”，不能让下一层的钱继续发给同一级邀请人。
+            $inviteUserId = $inviter->invite_user_id;
+
             if (!isset($commissionShareLevels[$l])) continue;
             $commissionBalance = (int) round($order->commission_balance * ($commissionShareLevels[$l] / 100));
             if (!$commissionBalance) continue;
@@ -112,13 +131,13 @@ class CheckCommission extends Command
                 $inviter->increment('commission_balance', $commissionBalance);
             }
             CommissionLog::create([
-                'invite_user_id' => $inviteUserId,
+                // $inviteUserId 已推进到上一级，收款人是刚取出的 $inviter
+                'invite_user_id' => $inviter->id,
                 'user_id' => $order->user_id,
                 'trade_no' => $order->trade_no,
                 'order_amount' => $order->total_amount,
                 'get_amount' => $commissionBalance
             ]);
-            $inviteUserId = $inviter->invite_user_id;
             // update order actual commission balance
             $order->actual_commission_balance = $order->actual_commission_balance + $commissionBalance;
         }

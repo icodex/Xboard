@@ -18,8 +18,15 @@ class TrafficFetchJob implements ShouldQueue
     protected $server;
     protected $protocol;
     protected $timestamp;
-    public $tries = 1;
+    // A single failed attempt used to drop that chunk of traffic for good. Retrying is
+    // only safe because handle() wraps every chunk in one transaction (see below).
+    public $tries = 3;
     public $timeout = 20;
+
+    public function backoff(): array
+    {
+        return [30, 120];
+    }
 
     public function __construct(array $server, array $data, $protocol, int $timestamp)
     {
@@ -34,34 +41,38 @@ class TrafficFetchJob implements ShouldQueue
     {
         $userIds = array_keys($this->data);
 
-        // one batched UPDATE per 500 users instead of two single-row updates each;
-        // CASE id WHEN is standard SQL on mysql/pgsql/sqlite
-        foreach (array_chunk($userIds, 500, true) as $chunkIds) {
-            $uCases = '';
-            $dCases = '';
-            $uBindings = [];
-            $dBindings = [];
-            foreach ($chunkIds as $uid) {
-                $v = $this->data[$uid];
-                $uCases .= ' WHEN ? THEN ?';
-                $dCases .= ' WHEN ? THEN ?';
-                // the two CASE blocks consume consecutive binding runs: all u pairs first, then all d pairs
-                $uBindings[] = $uid;
-                $uBindings[] = (int) round($v[0] * $this->server['rate']);
-                $dBindings[] = $uid;
-                $dBindings[] = (int) round($v[1] * $this->server['rate']);
-            }
+        // All chunks must commit or none: handle() is replayed from the start on
+        // retry, so a half-applied report would be added twice.
+        DB::transaction(function () use ($userIds) {
+            // one batched UPDATE per 500 users instead of two single-row updates each;
+            // CASE id WHEN is standard SQL on mysql/pgsql/sqlite
+            foreach (array_chunk($userIds, 500, true) as $chunkIds) {
+                $uCases = '';
+                $dCases = '';
+                $uBindings = [];
+                $dBindings = [];
+                foreach ($chunkIds as $uid) {
+                    $v = $this->data[$uid];
+                    $uCases .= ' WHEN ? THEN ?';
+                    $dCases .= ' WHEN ? THEN ?';
+                    // the two CASE blocks consume consecutive binding runs: all u pairs first, then all d pairs
+                    $uBindings[] = $uid;
+                    $uBindings[] = (int) round($v[0] * $this->server['rate']);
+                    $dBindings[] = $uid;
+                    $dBindings[] = (int) round($v[1] * $this->server['rate']);
+                }
 
-            // ids are bound inside the CASE clauses; the IN list takes them as plain ints
-            $ids = implode(',', array_map('intval', $chunkIds));
-            DB::update(
-                'UPDATE ' . (new User())->getTable()
-                . ' SET u = u + CASE id' . $uCases . ' ELSE 0 END'
-                . ', d = d + CASE id' . $dCases . ' ELSE 0 END'
-                . ', t = ? WHERE id IN (' . $ids . ')',
-                array_merge($uBindings, $dBindings, [time()])
-            );
-        }
+                // ids are bound inside the CASE clauses; the IN list takes them as plain ints
+                $ids = implode(',', array_map('intval', $chunkIds));
+                DB::update(
+                    'UPDATE ' . (new User())->getTable()
+                    . ' SET u = u + CASE id' . $uCases . ' ELSE 0 END'
+                    . ', d = d + CASE id' . $dCases . ' ELSE 0 END'
+                    . ', t = ? WHERE id IN (' . $ids . ')',
+                    array_merge($uBindings, $dBindings, [time()])
+                );
+            }
+        });
 
         if (!empty($userIds)) {
             Redis::sadd('traffic:pending_check', ...$userIds);

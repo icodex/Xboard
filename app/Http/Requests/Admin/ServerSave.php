@@ -59,8 +59,10 @@ class ServerSave extends FormRequest
         'quic.disableStatelessReset' => 'nullable|boolean',
     ];
 
-    // 内核实际消费的传输层；kcp/quic/raw 等节点端无实现
-    private const NETWORK_RULE = 'required|string|in:tcp,ws,grpc,h2,http,httpupgrade,xhttp,splithttp';
+    // 内核实际消费的传输层；kcp/quic/raw 等节点端无实现。
+    // splithttp 已移除：没有任何订阅格式生成它（builder 的 strict 白名单会整条过滤，
+    // SingBox 则退化成明文 tcp 出站），保存成该值的节点在客户端里必然不可用。
+    private const NETWORK_RULE = 'required|string|in:tcp,ws,grpc,h2,http,httpupgrade,xhttp';
 
     private const TLS_LEVEL_RULE = 'integer|in:0,1,2';
 

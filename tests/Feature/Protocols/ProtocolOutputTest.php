@@ -5,6 +5,7 @@ namespace Tests\Feature\Protocols;
 use App\Models\SubscribeTemplate;
 use App\Protocols\ClashMeta;
 use App\Protocols\General;
+use App\Protocols\QuantumultX;
 use App\Protocols\SingBox;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -189,6 +190,21 @@ class ProtocolOutputTest extends TestCase
         $on = new SingBox($this->user(), [$make(true, 'HY-ON')], 'sfa', '1.12.0', 'SFA/1.12.0');
         $onOutbound = collect(json_decode($on->handle()->getContent(), true)['outbounds'])->firstWhere('tag', 'HY-ON');
         $this->assertSame('obfspass', $onOutbound['obfs']);
+    }
+
+    public function test_quantumultx_emits_servers_and_matching_policy_tags(): void
+    {
+        $protocol = new QuantumultX($this->user(), $this->servers(), 'quantumultx', '1.5.0', 'Quantumult%20X/1.5.0');
+        $content = $protocol->handle()->getContent();
+
+        // Without the server lines Quantumult X loads an empty [server_local] and the
+        // policy lines below point at nothing.
+        $this->assertStringContainsString('shadowsocks=hk.example.com:8388', $content);
+        $this->assertStringContainsString('vmess=hk.example.com:443', $content);
+        $this->assertStringNotContainsString('$proxies', $content);
+
+        // every emitted node must also be selectable in the policy groups
+        $this->assertStringContainsString('HK-SS, HK-VMess', $content);
     }
 
     private function user(): array

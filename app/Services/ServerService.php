@@ -185,21 +185,6 @@ class ServerService
     }
 
     /**
-     * 处理节点连接数汇报
-     */
-    public static function processOnline(Server $node, array $online): void
-    {
-        $cacheTime = max(300, (int) admin_setting('server_push_interval', 60) * 3);
-        $nodeType = $node->type;
-        $nodeId = $node->id;
-
-        foreach ($online as $uid => $conn) {
-            $cacheKey = CacheKey::get("USER_ONLINE_CONN_{$nodeType}_{$nodeId}", $uid);
-            Cache::put($cacheKey, (int) $conn, $cacheTime);
-        }
-    }
-
-    /**
      * 处理节点负载状态汇报
      */
     public static function processStatus(Server $node, array $status): void

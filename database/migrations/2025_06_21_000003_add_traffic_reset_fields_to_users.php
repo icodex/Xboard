@@ -3,7 +3,6 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Artisan;
 
 class AddTrafficResetFieldsToUsers extends Migration
 {
@@ -22,8 +21,10 @@ class AddTrafficResetFieldsToUsers extends Migration
             });
         }
 
-        // Set initial reset time for existing users
-        Artisan::call('reset:traffic', ['--fix-null' => true]);
+        // The one-shot next_reset_at backfill lives in
+        // 2026_04_19_000001_backfill_users_next_reset_at, which runs after this
+        // migration and checks the exit code. Running it twice wasted a full
+        // table scan on every install.
     }
 
     /**

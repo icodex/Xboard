@@ -118,14 +118,31 @@ class Shadowrocket extends AbstractProtocol
             'remark' => $server['name'],
             'alterId' => 0
         ];
-        if (data_get($protocol_settings, 'tls')) {
-            $config['tls'] = 1;
-            if (data_get($protocol_settings, 'tls_settings')) {
+        switch (data_get($protocol_settings, 'tls')) {
+            case 1:
+                $config['tls'] = 1;
                 if (!!data_get($protocol_settings, 'tls_settings.allow_insecure'))
                     $config['allowInsecure'] = (int) data_get($protocol_settings, 'tls_settings.allow_insecure');
-                if (!!data_get($protocol_settings, 'tls_settings.server_name'))
-                    $config['peer'] = data_get($protocol_settings, 'tls_settings.server_name');
-            }
+                if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
+                    $config['peer'] = $serverName;
+                }
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
+                    $config['fp'] = $fp;
+                }
+                break;
+            case 2:
+                // Reality: without pbk/sid the client does a plain TLS handshake
+                // against a Reality server and never connects. Same shape as buildVless().
+                $config['tls'] = 1;
+                $config['sni'] = data_get($protocol_settings, 'reality_settings.server_name');
+                $config['pbk'] = data_get($protocol_settings, 'reality_settings.public_key');
+                $config['sid'] = data_get($protocol_settings, 'reality_settings.short_id');
+                if ($fp = Helper::getTlsFingerprint(data_get($protocol_settings, 'utls'), $server['_fp_seed'] ?? null)) {
+                    $config['fp'] = $fp;
+                }
+                break;
+            default:
+                break;
         }
 
         switch (data_get($protocol_settings, 'network')) {

@@ -3,6 +3,7 @@
 namespace Tests\Unit\Services;
 
 use App\Services\DeviceStateService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
@@ -12,6 +13,8 @@ use Tests\TestCase;
  */
 class DeviceStateNodeSetTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const NODE = 987654;
 
     private DeviceStateService $service;

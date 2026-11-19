@@ -12,30 +12,37 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('v2_server', function (Blueprint $table) {
-            $table->id('id');
-            $table->string('type')->comment('Server Type');
-            $table->string('code')->nullable()->comment('Server Spectific Key');
-            $table->unsignedInteger('parent_id')->nullable()->comment('Parent Server ID');
-            $table->json('group_ids')->nullable()->comment('Group ID');
-            $table->json('route_ids')->nullable()->comment('Route ID');
-            $table->string('name')->comment('Server Name');
-            $table->decimal('rate', 8, 2)->comment('Traffic Rate');
-            $table->json('tags')->nullable()->comment('Server Tags');
-            $table->string('host')->comment('Server Host');
-            $table->string('port')->comment('Client Port');
-            $table->integer('server_port')->comment('Server Port');
-            $table->json('protocol_settings')->nullable();
-            $table->boolean('show')->default(false)->comment('Show in List');
-            $table->integer('sort')->nullable()->unsigned()->index();
-            $table->timestamps();
-            $table->unique(['type', 'code']);
-        });
+        // MySQL DDL is not transactional: when one of the copy loops below throws
+        // (a legacy row the new schema rejects), the table stays behind and every
+        // retry used to die here with "table already exists". Guard it so the retry
+        // can finish the copy instead; the loops use insertOrIgnore so the resumed
+        // run does not duplicate the rows the previous attempt already wrote.
+        if (!Schema::hasTable('v2_server')) {
+            Schema::create('v2_server', function (Blueprint $table) {
+                $table->id('id');
+                $table->string('type')->comment('Server Type');
+                $table->string('code')->nullable()->comment('Server Spectific Key');
+                $table->unsignedInteger('parent_id')->nullable()->comment('Parent Server ID');
+                $table->json('group_ids')->nullable()->comment('Group ID');
+                $table->json('route_ids')->nullable()->comment('Route ID');
+                $table->string('name')->comment('Server Name');
+                $table->decimal('rate', 8, 2)->comment('Traffic Rate');
+                $table->json('tags')->nullable()->comment('Server Tags');
+                $table->string('host')->comment('Server Host');
+                $table->string('port')->comment('Client Port');
+                $table->integer('server_port')->comment('Server Port');
+                $table->json('protocol_settings')->nullable();
+                $table->boolean('show')->default(false)->comment('Show in List');
+                $table->integer('sort')->nullable()->unsigned()->index();
+                $table->timestamps();
+                $table->unique(['type', 'code']);
+            });
+        }
 
         // Migrate Trojan servers
         $trojanServers = DB::table('v2_server_trojan')->get();
         foreach ($trojanServers as $server) {
-            DB::table('v2_server')->insert([
+            DB::table('v2_server')->insertOrIgnore([
                 'type' => 'trojan',
                 'code' => (string) $server->id,
                 'parent_id' => $server->parent_id,
@@ -63,7 +70,7 @@ return new class extends Migration {
         // Migrate VMess servers
         $vmessServers = DB::table('v2_server_vmess')->get();
         foreach ($vmessServers as $server) {
-            DB::table('v2_server')->insert([
+            DB::table('v2_server')->insertOrIgnore([
                 'type' => 'vmess',
                 'code' => (string) $server->id,
                 'parent_id' => $server->parent_id,
@@ -93,7 +100,7 @@ return new class extends Migration {
         $vlessServers = DB::table('v2_server_vless')->get();
         foreach ($vlessServers as $server) {
             $tlsSettings = optional(json_decode($server->tls_settings));
-            DB::table('v2_server')->insert([
+            DB::table('v2_server')->insertOrIgnore([
                 'type' => 'vless',
                 'code' => (string) $server->id,
                 'parent_id' => $server->parent_id,
@@ -129,7 +136,7 @@ return new class extends Migration {
         // Migrate Shadowsocks servers
         $ssServers = DB::table('v2_server_shadowsocks')->get();
         foreach ($ssServers as $server) {
-            DB::table('v2_server')->insert([
+            DB::table('v2_server')->insertOrIgnore([
                 'type' => 'shadowsocks',
                 'code' => (string) $server->id,
                 'parent_id' => $server->parent_id,
@@ -156,7 +163,7 @@ return new class extends Migration {
         // Migrate Hysteria servers
         $hysteriaServers = DB::table(table: 'v2_server_hysteria')->get();
         foreach ($hysteriaServers as $server) {
-            DB::table('v2_server')->insert([
+            DB::table('v2_server')->insertOrIgnore([
                 'type' => 'hysteria',
                 'code' => (string) $server->id,
                 'parent_id' => $server->parent_id,
@@ -380,6 +387,11 @@ return new class extends Migration {
         // Migrate data back to old tables
         $servers = DB::table('v2_server')->get();
         foreach ($servers as $server) {
+            // Nodes created after this migration have no legacy row: their code is
+            // null, so (int) would restore every one of them onto primary key 0.
+            if (!is_numeric($server->code)) {
+                continue;
+            }
             $settings = json_decode($server->protocol_settings, true);
             $timestamp = strtotime($server->created_at);
             $updated = strtotime($server->updated_at);

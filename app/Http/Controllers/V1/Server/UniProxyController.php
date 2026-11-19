@@ -115,8 +115,8 @@ class UniProxyController extends Controller
             return response()->json(['error' => 'Invalid online data'], 400);
         }
 
-        ServerService::processOnline($node, $data);
-
+        // 连接数上报已停用：写入的 USER_ONLINE_CONN_* 缓存全仓无人读取。
+        // 端点保留返回 200，避免旧节点因 404 反复重试。
         return response()->json(['data' => true]);
     }
 

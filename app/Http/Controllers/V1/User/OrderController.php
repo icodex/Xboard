@@ -114,6 +114,15 @@ class OrderController extends Controller
             return $this->fail([400, __('Payment method is not available')]);
         }
         $paymentService = new PaymentService($payment->payment, $payment->id);
+
+        // The callback compares the gateway amount against the handling amount that
+        // is stored on the order. If a second tab switches gateway, that value is
+        // rewritten and the real callback no longer matches - the money is captured
+        // but the order is never marked paid. Bind the order to one gateway instead.
+        if ($order->payment_id && (int) $order->payment_id !== (int) $payment->id) {
+            return $this->fail([400, __('Order is already bound to another payment method')]);
+        }
+
         $order->handling_amount = NULL;
         if ($payment->handling_fee_fixed || $payment->handling_fee_percent) {
             $order->handling_amount = (int) round(($order->total_amount * ($payment->handling_fee_percent / 100)) + $payment->handling_fee_fixed);

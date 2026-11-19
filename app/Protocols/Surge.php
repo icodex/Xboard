@@ -46,6 +46,7 @@ class Surge extends AbstractProtocol
         $proxyGroup = '';
 
         foreach ($servers as $item) {
+            $line = '';
             if (
                 $item['type'] === Server::TYPE_SHADOWSOCKS
                 && in_array(data_get($item, 'protocol_settings.cipher'), [
@@ -57,33 +58,30 @@ class Surge extends AbstractProtocol
                     '2022-blake3-aes-256-gcm'
                 ])
             ) {
-                $proxies .= self::buildShadowsocks($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
+                $line = self::buildShadowsocks($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_VMESS) {
+                $line = self::buildVmess($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_TROJAN) {
+                $line = self::buildTrojan($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_HYSTERIA) {
+                $line = self::buildHysteria($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_ANYTLS) {
+                $line = self::buildAnyTLS($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_SOCKS) {
+                $line = self::buildSocks($item['password'], $item);
+            } elseif ($item['type'] === Server::TYPE_HTTP) {
+                $line = self::buildHttp($item['password'], $item);
             }
-            if ($item['type'] === Server::TYPE_VMESS) {
-                $proxies .= self::buildVmess($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
+
+            // buildHysteria() returns '' for hysteria v1 (unsupported by Surge). Adding
+            // the name anyway leaves a policy group pointing at a proxy that does not
+            // exist, and Surge rejects the whole config instead of one node.
+            if ($line === '') {
+                continue;
             }
-            if ($item['type'] === Server::TYPE_TROJAN) {
-                $proxies .= self::buildTrojan($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
-            }
-            if ($item['type'] === Server::TYPE_HYSTERIA) {
-                $proxies .= self::buildHysteria($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
-            }
-            if ($item['type'] === Server::TYPE_ANYTLS) {
-                $proxies .= self::buildAnyTLS($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
-            }
-            if ($item['type'] === Server::TYPE_SOCKS) {
-                $proxies .= self::buildSocks($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
-            }
-            if ($item['type'] === Server::TYPE_HTTP) {
-                $proxies .= self::buildHttp($item['password'], $item);
-                $proxyGroup .= $item['name'] . ', ';
-            }
+
+            $proxies .= $line;
+            $proxyGroup .= $item['name'] . ', ';
         }
 
 

@@ -259,6 +259,10 @@ class OrderController extends Controller
                     throw new \RuntimeException('只有已取消且已付款的订单可以补单');
                 }
 
+                // cancel() refunded balance_amount and released the coupon; take them
+                // back before provisioning, or the user keeps both the money and the plan.
+                (new \App\Services\OrderService($order))->reclaimCancelledPayment();
+
                 $order->status = Order::STATUS_PROCESSING;
                 $order->saveOrFail();
                 DB::afterCommit(fn () => \App\Jobs\OrderHandleJob::dispatch($order->trade_no));

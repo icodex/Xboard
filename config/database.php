@@ -38,7 +38,17 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DATABASE_URL'),
-            'database' => env('DB_DATABASE') ? base_path(env('DB_DATABASE')) : database_path('database.sqlite'),
+            // base_path() would turn :memory: into a path. The SQLite connector passes
+            // :memory: (and ?mode=memory) through untouched, so keep it verbatim: tests
+            // use it, and a file that is gitignored does not exist on a fresh checkout.
+            'database' => (static function () {
+                $database = env('DB_DATABASE');
+                if (!$database) {
+                    return database_path('database.sqlite');
+                }
+
+                return $database === ':memory:' ? $database : base_path($database);
+            })(),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             'busy_timeout' => env('DB_BUSY_TIMEOUT', 30000),

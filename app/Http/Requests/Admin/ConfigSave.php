@@ -47,7 +47,8 @@ class ConfigSave extends FormRequest
         'show_protocol_to_server_enable' => '',
         'subscribe_path' => '',
         // server
-        'server_token' => 'nullable|min:16',
+        // filled: '' passes nullable|min:16 and would lock every node out.
+        'server_token' => 'filled|string|min:16',
         'server_pull_interval' => 'integer',
         'server_push_interval' => 'integer',
         'device_limit_mode' => 'integer',
@@ -100,7 +101,9 @@ class ConfigSave extends FormRequest
         'register_limit_by_ip_enable' => 'boolean',
         'register_limit_count' => 'integer',
         'register_limit_expire' => 'integer',
-        'secure_path' => 'min:8|regex:/^[\w-]*$/',
+        // filled: an empty string skips non-implicit rules like min:8, and saving it
+        // would move the admin routes to /api/v2//... (404) with no way back in.
+        'secure_path' => 'filled|string|min:8|regex:/^[\w-]+$/',
         'password_limit_enable' => 'boolean',
         'password_limit_count' => 'integer',
         'password_limit_expire' => 'integer',

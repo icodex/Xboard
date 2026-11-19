@@ -18,7 +18,16 @@ return new class extends Migration {
             return;
         }
 
-        Artisan::call('reset:traffic', ['--fix-null' => true]);
+        // A silent failure here is permanent: the migration gets recorded, so the
+        // backfill never runs again, and every affected user keeps next_reset_at
+        // NULL - which means their traffic is never reset. Fail the migration
+        // instead, so the next deploy retries it.
+        if (Artisan::call('reset:traffic', ['--fix-null' => true]) !== 0) {
+            throw new RuntimeException(
+                'reset:traffic --fix-null failed, some users still have next_reset_at = null. ' .
+                'Fix the underlying error and re-run the migration.'
+            );
+        }
     }
 
     public function down(): void

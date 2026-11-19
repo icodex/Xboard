@@ -11,8 +11,9 @@ use Tests\TestCase;
 
 /**
  * payment gateways treat a non-2xx/`fail` body as "keep retrying" and a truthy
- * return as "done". handle() must therefore return a real bool: an unknown
- * trade_no or a mismatched paid amount may never report success.
+ * return as "done". handle() must return a real bool. A mismatched paid amount is
+ * acknowledged (the money is captured either way, retrying cannot fix the amount)
+ * but must never complete the order: it is recorded for manual reconciliation.
  */
 class PaymentNotifyTest extends TestCase
 {
@@ -33,15 +34,21 @@ class PaymentNotifyTest extends TestCase
         $this->assertFalse($this->controller()->callHandle('missing-trade-no', 'cb'));
     }
 
-    public function test_amount_mismatch_keeps_order_pending(): void
+    public function test_amount_mismatch_is_recorded_for_reconcile_but_stays_pending(): void
     {
         $order = $this->makeOrder($this->makeUser(), $this->makePlan(), [
             'total_amount' => 100,
             'handling_amount' => null,
         ]);
 
-        $this->assertFalse($this->controller()->callHandle($order->trade_no, 'cb', 50));
-        $this->assertSame(Order::STATUS_PENDING, $order->refresh()->status);
+        $this->assertTrue($this->controller()->callHandle($order->trade_no, 'cb', 50));
+
+        $order->refresh();
+        // never opened for a wrong amount
+        $this->assertSame(Order::STATUS_PENDING, $order->status);
+        // but the captured money is on record so order/reconcile can see it
+        $this->assertNotNull($order->paid_at);
+        $this->assertStringContainsString('paid 50', $order->callback_no);
     }
 
     public function test_matching_amount_marks_paid(): void

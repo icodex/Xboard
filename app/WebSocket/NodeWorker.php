@@ -251,7 +251,11 @@ class NodeWorker
         NodeRegistry::add($nodeId, $conn);
         Cache::put(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"), true, 86400);
 
-        app(DeviceStateService::class)->clearAllNodeDevices($nodeId);
+        // No clearAllNodeDevices() here: it walks every user of the node (hkeys/hdel
+        // per user) inside the Workerman event loop. On a deploy all nodes reconnect
+        // at once, which blocked the loop long enough to time out their heartbeats and
+        // cause another reconnect wave. Stale device fields expire on their own (TTL)
+        // and the node reports its device list right after connecting.
 
         Log::info("[WS] Node#{$nodeId} connected", [
             'remote' => $conn->getRemoteIp(),
@@ -297,11 +301,11 @@ class NodeWorker
 
         // 把同一个连接注册到该机器下所有节点
         $nodeIds = [];
-        $deviceService = app(DeviceStateService::class);
         foreach ($nodes as $node) {
             NodeRegistry::add($node->id, $conn);
             Cache::put(CacheKey::get("NODE_WS_ALIVE_{$node->id}"), true, 86400);
-            $deviceService->clearAllNodeDevices($node->id);
+            // See the single-node path above: clearing every user's device fields here
+            // blocks the WS loop during a reconnect storm.
             $nodeIds[] = $node->id;
         }
 
@@ -385,10 +389,9 @@ class NodeWorker
                 NodeRegistry::remove($nodeId, $conn);
                 Cache::forget(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"));
 
+                // clearAllNodeDevices() already notifies each affected user; the
+                // second notifyUpdate() loop here only doubled the work.
                 $affectedUserIds = $service->clearAllNodeDevices($nodeId);
-                foreach ($affectedUserIds as $userId) {
-                    $service->notifyUpdate($userId);
-                }
             }
 
             if (!empty($conn->machineId)) {
@@ -409,10 +412,8 @@ class NodeWorker
             NodeRegistry::remove($nodeId, $conn);
             Cache::forget(CacheKey::get("NODE_WS_ALIVE_{$nodeId}"));
 
+            // clearAllNodeDevices() already notifies each affected user.
             $affectedUserIds = $service->clearAllNodeDevices($nodeId);
-            foreach ($affectedUserIds as $userId) {
-                $service->notifyUpdate($userId);
-            }
 
             Log::info("[WS] Node#{$nodeId} disconnected", [
                 'total' => NodeRegistry::count(),

@@ -358,12 +358,22 @@ class OrderService
                     return [$order, false, true];
                 }
                 if ($paidAmount !== null && $paidAmount !== (int) $order->total_amount + (int) ($order->handling_amount ?? 0)) {
+                    // Persist what the gateway actually captured. Dropping it made a
+                    // paid order look unpaid: check:order cancelled it two hours later
+                    // with no trace, and order/reconcile requires paid_at to help.
+                    if ($order->paid_at === null) {
+                        $order->paid_at = time();
+                        $order->callback_no = $callbackNo . ' (paid ' . $paidAmount . ')';
+                        $order->saveOrFail();
+                    }
                     Log::warning('Payment amount mismatch', [
                         'trade_no' => $order->trade_no,
                         'expected' => (int) $order->total_amount + (int) ($order->handling_amount ?? 0),
                         'paid' => $paidAmount,
                     ]);
-                    return [$order, false, false];
+                    // The money is captured; retrying the callback cannot fix the
+                    // amount, so acknowledge and let an admin reconcile the order.
+                    return [$order, false, true];
                 }
                 if ((int) $order->status !== Order::STATUS_PENDING) {
                     return [$order, false, true];
@@ -396,6 +406,34 @@ class OrderService
             return false;
         }
         return true;
+    }
+
+    /**
+     * Claim back what cancel() gave away, before a late payment is turned back into
+     * a provisioning order: the refunded balance_amount and the released coupon use.
+     * Without this a reconciled order delivers the plan while the money stays on the
+     * user's balance, and the coupon's limit is never consumed again.
+     */
+    public function reclaimCancelledPayment(): void
+    {
+        $order = $this->order;
+
+        if ((int) $order->balance_amount > 0) {
+            $userService = new UserService();
+            if (!$userService->addBalance($order->user_id, -(int) $order->balance_amount)) {
+                throw new \RuntimeException('余额不足，无法补单：取消时退回的余额已被使用');
+            }
+        }
+
+        if ($order->coupon_id) {
+            $reclaimed = Coupon::where('id', $order->coupon_id)
+                ->whereNotNull('limit_use')
+                ->where('limit_use', '>', 0)
+                ->decrement('limit_use');
+            if (!$reclaimed) {
+                throw new \RuntimeException('优惠券的可用次数已用尽，无法补单');
+            }
+        }
     }
 
     public function cancel(): bool

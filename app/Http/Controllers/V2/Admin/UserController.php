@@ -250,8 +250,21 @@ class UserController extends Controller
             } elseif ($hasFilter) {
                 $scope = 'filtered';
             } else {
-                $scope = 'all';
+                // Never default to the whole table: a cleared filter plus "ban"
+                // used to ban every user on the panel.
+                $scope = 'selected';
             }
+        }
+
+        // Scope=all runs against the entire v2_user table (ban also drops every
+        // Sanctum token), so it has to be asked for explicitly.
+        if ($scope === 'all' && !$request->boolean('confirm_all')) {
+            $scope = 'selected';
+        }
+
+        // A "filtered" request without a filter would silently mean "everything".
+        if ($scope === 'filtered' && !$hasFilter) {
+            $scope = 'selected';
         }
 
         $normalizedIds = [];

@@ -58,10 +58,8 @@ class ServerController extends Controller
             ServerService::processAlive($node->id, $alive);
         }
 
-        $online = $request->input('online');
-        if (is_array($online) && !empty($online)) {
-            ServerService::processOnline($node, $online);
-        }
+        // `online` 上报不再处理：USER_ONLINE_CONN_* 没有读取方，逐用户写缓存
+        // 只是把 Redis 往返加进上报请求（见 processAlive 的同类开销）。
 
         $status = $request->input('status');
         if (is_array($status) && !empty($status)) {

@@ -56,8 +56,12 @@ class StatServerJob implements ShouldQueue
         }
 
         try {
-            $this->processServerStat($u, $d, $recordAt);
-            $this->updateServerTraffic($u, $d);
+            // Both writes are one unit: a retry replays handle(), and a half-applied
+            // report would add the same chunk to v2_stat_server or v2_server twice.
+            DB::transaction(function () use ($u, $d, $recordAt) {
+                $this->processServerStat($u, $d, $recordAt);
+                $this->updateServerTraffic($u, $d);
+            });
         } catch (\Exception $e) {
             Log::error('StatServerJob failed for server ' . $this->server['id'] . ': ' . $e->getMessage());
             throw $e;

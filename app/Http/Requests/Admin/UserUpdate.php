@@ -18,7 +18,8 @@ class UserUpdate extends FormRequest
     {
         $rules = [
             'id' => 'required|integer',
-            'email' => 'email:strict|max:64',
+            // filled: '' skips the email rule, and saving it breaks login/mail for the user.
+            'email' => 'filled|email:strict|max:64',
             'password' => 'nullable|min:8',
             'transfer_enable' => 'numeric',
             'expired_at' => 'nullable|integer',

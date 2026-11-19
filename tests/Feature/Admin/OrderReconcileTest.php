@@ -46,14 +46,14 @@ class OrderReconcileTest extends TestCase
         $this->assertNotNull($order->refunded_at);
     }
 
-    private function cancelledPaidOrder(): Order
+    private function cancelledPaidOrder(array $orderOverrides = [], int $userBalance = 0): Order
     {
         $user = User::create([
             'email' => 'reconcile@example.com',
             'password' => 'password',
             'uuid' => '00000000-0000-0000-0000-0000000000f3',
             'token' => md5('reconcile@example.com'),
-            'balance' => 0,
+            'balance' => $userBalance,
             'commission_balance' => 0,
             'transfer_enable' => 0,
             'created_at' => time(),
@@ -72,7 +72,7 @@ class OrderReconcileTest extends TestCase
             'updated_at' => time(),
         ]);
 
-        return Order::create([
+        return Order::create(array_merge([
             'user_id' => $user->id,
             'plan_id' => $plan->id,
             'type' => Order::TYPE_NEW_PURCHASE,
@@ -87,6 +87,38 @@ class OrderReconcileTest extends TestCase
             'commission_balance' => 0,
             'created_at' => time(),
             'updated_at' => time(),
-        ]);
+        ], $orderOverrides));
+    }
+
+    public function test_complete_reclaims_the_balance_that_cancel_refunded(): void
+    {
+        Queue::fake();
+        // cancel() gave back the 50 the user had paid from balance; the order itself
+        // still says 50 was paid that way, so completing it must take it again.
+        $order = $this->cancelledPaidOrder(['balance_amount' => 5000], 5000);
+
+        $response = (new OrderController())->reconcile(Request::create('/', 'POST', [
+            'trade_no' => $order->trade_no,
+            'action' => 'complete',
+        ]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(Order::STATUS_PROCESSING, $order->fresh()->status);
+        $this->assertSame(0, (int) User::find($order->user_id)->balance);
+    }
+
+    public function test_complete_refuses_when_the_refunded_balance_is_gone(): void
+    {
+        Queue::fake();
+        $order = $this->cancelledPaidOrder(['balance_amount' => 5000], 0);
+
+        $response = (new OrderController())->reconcile(Request::create('/', 'POST', [
+            'trade_no' => $order->trade_no,
+            'action' => 'complete',
+        ]));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(Order::STATUS_CANCELLED, $order->fresh()->status);
+        Queue::assertNotPushed(OrderHandleJob::class);
     }
 }
