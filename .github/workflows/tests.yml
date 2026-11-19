@@ -51,3 +51,62 @@ jobs:
 
       - name: Run phpstan
         run: php vendor/bin/phpstan analyse --memory-limit=1G
+
+  # sqlite has no row locks, so `lockForUpdate()` is a no-op there and the money
+  # concurrency tests can only prove conditional updates. This job runs the same
+  # suite on MySQL (phpunit-mysql.xml) where the locking semantics are real, and it
+  # also catches fixtures that write values the production schema would reject
+  # (e.g. a 36-char uuid into v2_user.token, which is char(32)).
+  tests-mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: xboard_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath, ctype, curl, dom, fileinfo, intl, json, mbstring, openssl, pcre, pdo, pdo_mysql, pdo_sqlite, redis, sockets, xml, zip
+          coverage: none
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-mysql-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-mysql-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Run phpunit on MySQL
+        run: php vendor/bin/phpunit -c phpunit-mysql.xml

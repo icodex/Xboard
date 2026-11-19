@@ -45,7 +45,7 @@ class MailLinkThrottleTest extends TestCase
             'email' => 'known@example.com',
             'password' => 'password',
             'uuid' => '00000000-0000-0000-0000-0000000000d1',
-            'token' => Helper::guid(true),
+            'token' => Helper::guid(),
             'created_at' => time(),
             'updated_at' => time(),
         ]);
@@ -66,7 +66,7 @@ class MailLinkThrottleTest extends TestCase
             'email' => 'url-test@example.com',
             'password' => 'password',
             'uuid' => '00000000-0000-0000-0000-0000000000d2',
-            'token' => Helper::guid(true),
+            'token' => Helper::guid(),
             'created_at' => time(),
             'updated_at' => time(),
         ]);

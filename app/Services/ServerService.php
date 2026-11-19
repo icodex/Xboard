@@ -228,6 +228,16 @@ class ServerService
             CacheKey::get("SERVER_{$nodeType}_LOAD_STATUS", $nodeId) => $statusData,
             CacheKey::get("SERVER_{$nodeType}_LAST_LOAD_AT", $nodeId) => now()->timestamp,
         ], $cacheTime);
+
+        // 节点自报的能力位（旧节点没有这个字段）：据此决定能不能发增量事件，
+        // 没上报就不缓存，发送侧按"不支持"处理，退回全量快照。
+        if (isset($status['capabilities']) && is_array($status['capabilities'])) {
+            Cache::put(
+                CacheKey::get('NODE_CAPABILITIES', $nodeId),
+                array_values(array_filter($status['capabilities'], 'is_string')),
+                $cacheTime
+            );
+        }
     }
 
     /**

@@ -95,7 +95,7 @@ class RegisterServiceTest extends TestCase
                     'email' => $email,
                     'password' => password_hash('password123', PASSWORD_DEFAULT),
                     'uuid' => Helper::guid(true),
-                    'token' => Helper::guid(true),
+                    'token' => Helper::guid(),
                     'created_at' => time(),
                     'updated_at' => time(),
                 ]);
@@ -104,7 +104,9 @@ class RegisterServiceTest extends TestCase
                 $user->email = $data['email'];
                 $user->password = password_hash($data['password'], PASSWORD_DEFAULT);
                 $user->uuid = Helper::guid(true);
-                $user->token = Helper::guid(true);
+                // v2_user.token is char(32): a 36-char uuid here only "works" on sqlite,
+                // and the service saves this instance below.
+                $user->token = Helper::guid();
                 $user->created_at = time();
                 $user->updated_at = time();
 
