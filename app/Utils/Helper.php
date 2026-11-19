@@ -176,12 +176,26 @@ class Helper
         return HookManager::filter('subscribe.url', $finalUrl);
     }
 
-    public static function randomPort($range): int {
+    /**
+     * 从端口区间里取一个端口。
+     *
+     * 给了 $seed 就确定性地取：同一用户 + 同一节点每次结果一致，订阅正文因此稳定
+     * （否则 ClientController 的 md5 ETag 永不命中，端口区间节点每次轮询都全量重建）。
+     * 不同用户仍按 seed 分散到区间内不同端口。未给 seed 时保持随机（原有语义）。
+     */
+    public static function randomPort($range, ?string $seed = null): int {
         $portRange = explode('-', (string) $range, 2);
         $min = (int) ($portRange[0] ?? 0);
         $max = (int) ($portRange[1] ?? $portRange[0] ?? 0);
         if ($min > $max) {
             [$min, $max] = [$max, $min];
+        }
+        if ($max <= $min) {
+            return $min;
+        }
+        if ($seed !== null && $seed !== '') {
+            $span = $max - $min + 1;
+            return $min + (int) (hexdec(substr(md5($seed), 0, 8)) % $span);
         }
         return random_int($min, $max);
     }

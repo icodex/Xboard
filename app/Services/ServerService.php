@@ -75,7 +75,9 @@ class ServerService
             // 判断动态端口
             if (str_contains($server->port, '-')) {
                 $port = $server->port;
-                $server->port = (int) Helper::randomPort($port);
+                // 按 user token + 节点 id 取值：同一用户每次轮询拿到同一个端口，
+                // 订阅正文才能稳定、ETag 才能命中；不同用户仍分散在区间内。
+                $server->port = Helper::randomPort($port, (string) $user->token . $server->id);
                 $server->ports = $port;
             } else {
                 $server->port = (int) $server->port;
