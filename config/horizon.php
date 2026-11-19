@@ -1,10 +1,6 @@
 <?php
 
 use Illuminate\Support\Str;
-use Linfo\Linfo;
-
-// $lInfo = new Linfo();
-// $parser = $lInfo->getParser();
 
 return [
 

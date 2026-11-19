@@ -12,7 +12,6 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "bacon/bacon-qr-code": "^2.0",
         "doctrine/dbal": "^4.0",
         "google/cloud-storage": "^1.35",
         "google/recaptcha": "^1.2",
@@ -23,15 +22,12 @@
         "laravel/prompts": "^0.3",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10",
-        "linfo/linfo": "^4.0",
         "paragonie/sodium_compat": "^1.20",
         "php-curl-class/php-curl-class": "^8.6",
         "spatie/db-dumper": "^3.4",
         "stripe/stripe-php": "^7.36.1",
-        "symfony/http-client": "^7.0",
         "symfony/mailgun-mailer": "^7.0",
         "symfony/yaml": "*",
-        "webmozart/assert": "*",
         "workerman/redis": "^2.0",
         "workerman/workerman": "^5.1",
         "zoujingli/ip2region": "^2.0"
@@ -59,7 +55,6 @@
     "autoload": {
         "psr-4": {
             "App\\": "app/",
-            "Library\\": "library/",
             "Plugin\\": "plugins/"
         },
         "classmap": [

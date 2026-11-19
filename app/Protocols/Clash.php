@@ -160,48 +160,7 @@ class Clash extends AbstractProtocol
         $array['cipher'] = data_get($protocol_settings, 'cipher');
         $array['password'] = $uuid;
         $array['udp'] = true;
-        if (data_get($protocol_settings, 'plugin') && data_get($protocol_settings, 'plugin_opts')) {
-            $plugin = data_get($protocol_settings, 'plugin');
-            $pluginOpts = data_get($protocol_settings, 'plugin_opts', '');
-            $array['plugin'] = $plugin;
-
-            // 解析插件选项
-            $parsedOpts = collect(explode(';', $pluginOpts))
-                ->filter()
-                ->mapWithKeys(function ($pair) {
-                    if (!str_contains($pair, '=')) {
-                        return [];
-                    }
-                    [$key, $value] = explode('=', $pair, 2);
-                    return [trim($key) => trim($value)];
-                })
-                ->all();
-
-            // 根据插件类型进行字段映射
-            switch ($plugin) {
-                case 'obfs':
-                    $array['plugin-opts'] = [
-                        'mode' => $parsedOpts['obfs'] ?? data_get($protocol_settings, 'obfs', 'http'),
-                        'host' => $parsedOpts['obfs-host'] ?? data_get($protocol_settings, 'obfs_settings.host', ''),
-                    ];
-
-                    if (isset($parsedOpts['path'])) {
-                        $array['plugin-opts']['path'] = $parsedOpts['path'];
-                    }
-                    break;
-                case 'v2ray-plugin':
-                    $array['plugin-opts'] = [
-                        'mode' => $parsedOpts['mode'] ?? 'websocket',
-                        'tls' => isset($parsedOpts['tls']) && $parsedOpts['tls'] == 'true',
-                        'host' => $parsedOpts['host'] ?? '',
-                        'path' => $parsedOpts['path'] ?? '/',
-                    ];
-                    break;
-                default:
-                    // 对于其他插件，直接使用解析出的键值对
-                    $array['plugin-opts'] = $parsedOpts;
-            }
-        }
+        
         return $array;
     }
 

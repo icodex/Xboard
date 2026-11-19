@@ -618,10 +618,7 @@ class SingBox extends AbstractProtocol
         $array['server_port'] = $server['port'];
         $array['method'] = data_get($protocol_settings, 'cipher');
         $array['password'] = data_get($server, 'password', $password);
-        if (data_get($protocol_settings, 'plugin') && data_get($protocol_settings, 'plugin_opts')) {
-            $array['plugin'] = data_get($protocol_settings, 'plugin');
-            $array['plugin_opts'] = data_get($protocol_settings, 'plugin_opts', '');
-        }
+        
 
         return $array;
     }

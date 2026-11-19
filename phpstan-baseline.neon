@@ -66,17 +66,6 @@ parameters:
 			count: 1
 			path: app/Protocols/SingBox.php
 
-		-
-			message: '#^Offset ''path'' on non\-empty\-array\<string, string\> on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Protocols/Stash.php
-
-		-
-			message: '#^Strict comparison using \!\=\= between bool\|string and null will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Protocols/Stash.php
 
 		-
 			message: '#^Offset 1 on array\{0\: non\-falsy\-string, 1\: non\-empty\-string, 2\?\: string\} on left side of \?\? always exists and is not nullable\.$#'

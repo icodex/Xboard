@@ -101,11 +101,6 @@ class Shadowrocket extends AbstractProtocol
         $addr = Helper::wrapIPv6($server['host']);
 
         $uri = "ss://{$str}@{$addr}:{$server['port']}";
-        $plugin = data_get($protocol_settings, 'plugin') == 'obfs' ? 'obfs-local' : data_get($protocol_settings, 'plugin');
-        $plugin_opts = data_get($protocol_settings, 'plugin_opts');
-        if ($plugin && $plugin_opts) {
-            $uri .= '/?' . 'plugin=' . $plugin . ';' . rawurlencode($plugin_opts);
-        }
         return $uri . "#{$name}\r\n";
     }
 

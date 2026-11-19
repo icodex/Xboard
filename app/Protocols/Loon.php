@@ -86,32 +86,7 @@ class Loon extends AbstractProtocol
             'udp=true'
         ];
 
-        if (data_get($protocol_settings, 'plugin') && data_get($protocol_settings, 'plugin_opts')) {
-            $plugin = data_get($protocol_settings, 'plugin');
-            $pluginOpts = data_get($protocol_settings, 'plugin_opts', '');
-            // 解析插件选项
-            $parsedOpts = collect(explode(';', $pluginOpts))
-                ->filter()
-                ->mapWithKeys(function ($pair) {
-                    if (!str_contains($pair, '=')) {
-                        return [];
-                    }
-                    [$key, $value] = explode('=', $pair, 2);
-                    return [trim($key) => trim($value)];
-                })
-                ->all();
-            switch ($plugin) {
-                case 'obfs':
-                    $config[] = "obfs-name={$parsedOpts['obfs']}";
-                    if (isset($parsedOpts['obfs-host'])) {
-                        $config[] = "obfs-host={$parsedOpts['obfs-host']}";
-                    }
-                    if (isset($parsedOpts['path'])) {
-                        $config[] = "obfs-uri={$parsedOpts['path']}";
-                    }
-                    break;
-            }
-        }
+        
 
         $config = array_filter($config);
         $uri = implode(',', $config) . "\r\n";

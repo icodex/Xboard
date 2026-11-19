@@ -88,12 +88,7 @@ class General extends AbstractProtocol
             base64_encode(data_get($protocol_settings, 'cipher') . ":{$password}")
         );
         $addr = Helper::wrapIPv6($server['host']);
-        $plugin = data_get($protocol_settings, 'plugin');
-        $plugin_opts = data_get($protocol_settings, 'plugin_opts');
         $url = "ss://{$str}@{$addr}:{$server['port']}";
-        if ($plugin && $plugin_opts) {
-            $url .= '/?' . 'plugin=' . rawurlencode($plugin . ';' . $plugin_opts);
-        }
         $url .= "#{$name}\r\n";
         return $url;
     }

@@ -123,31 +123,7 @@ class QuantumultX extends AbstractProtocol
             "password={$password}",
         ];
 
-        if (data_get($protocol_settings, 'plugin') && data_get($protocol_settings, 'plugin_opts')) {
-            $plugin = data_get($protocol_settings, 'plugin');
-            $pluginOpts = data_get($protocol_settings, 'plugin_opts', '');
-            $parsedOpts = collect(explode(';', $pluginOpts))
-                ->filter()
-                ->mapWithKeys(function ($pair) {
-                    if (!str_contains($pair, '=')) {
-                        return [];
-                    }
-                    [$key, $value] = explode('=', $pair, 2);
-                    return [trim($key) => trim($value)];
-                })
-                ->all();
-            if ($plugin === 'obfs') {
-                if (isset($parsedOpts['obfs'])) {
-                    $config[] = "obfs={$parsedOpts['obfs']}";
-                }
-                if (isset($parsedOpts['obfs-host'])) {
-                    $config[] = "obfs-host={$parsedOpts['obfs-host']}";
-                }
-                if (isset($parsedOpts['path'])) {
-                    $config[] = "obfs-uri={$parsedOpts['path']}";
-                }
-            }
-        }
+        
 
         self::applyCommonSettings($config, $server);
 
