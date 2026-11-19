@@ -2,9 +2,8 @@
 
 namespace App\Observers;
 
+use App\Jobs\RecalculatePlanResetJob;
 use App\Models\Plan;
-use App\Models\User;
-use App\Services\TrafficResetService;
 
 class PlanObserver
 {
@@ -18,20 +17,10 @@ class PlanObserver
         if (!$plan->wasChanged('reset_traffic_method')) {
             return;
         }
-        $trafficResetService = app(TrafficResetService::class);
-        User::where('plan_id', $plan->id)
-            ->chunkById(500, function ($users) use ($trafficResetService, $plan) {
-                foreach ($users as $user) {
-                    \Illuminate\Support\Facades\DB::transaction(function () use ($user, $plan, $trafficResetService) {
-                        $locked = User::whereKey($user->id)->lockForUpdate()->first();
-                        if (!$locked || $locked->plan_id !== $plan->id) {
-                            return;
-                        }
-                        $nextResetTime = $trafficResetService->calculateNextResetTime($locked);
-                        $locked->update(['next_reset_at' => $nextResetTime?->timestamp]);
-                    });
-                }
-            });
+
+        // 一个套餐可能挂几千用户：同步重算会把管理端请求拖到超时，中断后一半用户
+        // 按新策略、一半按旧策略。交给分块 job，可中断可续跑。
+        RecalculatePlanResetJob::dispatch((int) $plan->id);
     }
 }
 
