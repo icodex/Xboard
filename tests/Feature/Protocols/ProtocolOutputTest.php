@@ -3,11 +3,13 @@
 namespace Tests\Feature\Protocols;
 
 use App\Models\SubscribeTemplate;
+use App\Protocols\Clash;
 use App\Protocols\ClashMeta;
 use App\Protocols\General;
 use App\Protocols\QuantumultX;
 use App\Protocols\Shadowsocks;
 use App\Protocols\SingBox;
+use App\Protocols\Surge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
@@ -274,6 +276,43 @@ class ProtocolOutputTest extends TestCase
         $payload = json_decode(base64_decode(trim(substr($first, strlen('vmess://')))), true);
         $this->assertContains($payload['path'], ['/a', '/b', '/c']);
         $this->assertContains($payload['host'], ['h1.example.com', 'h2.example.com']);
+    }
+
+    public function test_legacy_clients_drop_reality_nodes_instead_of_emitting_broken_tls(): void
+    {
+        SubscribeTemplate::setContent('clash', File::get(base_path('resources/rules/default.clash.yaml')));
+        SubscribeTemplate::setContent('surge', File::get(base_path('resources/rules/default.surge.conf')));
+
+        $make = function (int $tls, string $name) {
+            return [
+                'id' => 21 + $tls,
+                'type' => 'vmess',
+                'name' => $name,
+                'host' => 'reality.example.com',
+                'port' => 443,
+                'password' => '11111111-2222-3333-4444-555555555555',
+                'protocol_settings' => [
+                    'tls' => $tls,
+                    'network' => 'tcp',
+                    'tls_settings' => ['server_name' => 'reality.example.com', 'allow_insecure' => false],
+                    'reality_settings' => ['public_key' => 'pbk', 'short_id' => 'sid', 'server_name' => 'reality.example.com'],
+                    'multiplex' => null,
+                    'utls' => null,
+                ],
+            ];
+        };
+
+        // tls=2 (Reality) is not representable in either client: it must be dropped,
+        // not emitted as a plain TLS proxy the client can never connect to.
+        $servers = [$make(2, 'REALITY-NODE'), $make(1, 'PLAIN-TLS-NODE')];
+
+        $clash = (new Clash($this->user(), $servers, 'clash', '1.0.0', 'clash'))->handle()->getContent();
+        $this->assertStringNotContainsString('REALITY-NODE', $clash);
+        $this->assertStringContainsString('PLAIN-TLS-NODE', $clash);
+
+        $surge = (new Surge($this->user(), $servers, 'surge', '5.0.0', 'surge'))->handle()->getContent();
+        $this->assertStringNotContainsString('REALITY-NODE', $surge);
+        $this->assertStringContainsString('PLAIN-TLS-NODE', $surge);
     }
 
     private function user(): array

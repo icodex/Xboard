@@ -24,6 +24,13 @@ class Surge extends AbstractProtocol
     ];
     protected $protocolRequirements = [
         'surge.hysteria.protocol_settings.version' => [2 => '2398'],
+        // Surge 也没有 Reality：tls=2 会被输出成普通 TLS（缺 pbk/sid），必连不上
+        'surge.vmess.protocol_settings.tls' => [
+            '2' => '9999.0.0',
+        ],
+        'surge.trojan.protocol_settings.tls' => [
+            '2' => '9999.0.0',
+        ],
         // Surge vmess 仅 ws（manual policies/vmess），trojan 支持 ws（manual policies/trojan: ws/ws-path/ws-headers）
         'surge.vmess.protocol_settings.network' => [
             'whitelist' => ['tcp', 'ws'],

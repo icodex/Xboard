@@ -25,12 +25,20 @@ class Clash extends AbstractProtocol
     protected $protocolRequirements = [
         '*' => [
             'vmess' => [
+                // 旧版 Clash 没有 Reality：tls=2 会被输出成普通 TLS，客户端必然连不上
+                // （同 Stash 对 trojan Reality 的处理：把要求版本顶到永不满足）
+                'protocol_settings.tls' => [
+                    '2' => '9999.0.0',
+                ],
                 'protocol_settings.network' => [
                     'whitelist' => ['tcp', 'ws', 'grpc', 'h2', 'http'],
                     'strict' => true,
                 ],
             ],
             'trojan' => [
+                'protocol_settings.tls' => [
+                    '2' => '9999.0.0',
+                ],
                 'protocol_settings.network' => [
                     'whitelist' => ['tcp', 'ws', 'grpc'],
                     'strict' => true,
