@@ -150,12 +150,13 @@ class Loon extends AbstractProtocol
                     $config = str_replace('transport=tcp', "transport={$tcpSettings['header']['type']}", $config);
                 if (data_get($tcpSettings, key: 'header.request.path')) {
                     $paths = data_get($tcpSettings, key: 'header.request.path');
-                    $path = $paths[array_rand($paths)];
+                    // 确定性取值：见 AbstractProtocol::pickOne（随机值会让 ETag 永不命中）
+                    $path = self::pickOne($paths, $server['_fp_seed'] ?? null);
                     $config[] = "path={$path}";
                 }
                 if (data_get($tcpSettings, key: 'header.request.headers.Host')) {
                     $hosts = data_get($tcpSettings, key: 'header.request.headers.Host');
-                    $host = $hosts[array_rand($hosts)];
+                    $host = self::pickOne($hosts, $server['_fp_seed'] ?? null);
                     $config[] = "host={$host}";
                 }
                 break;

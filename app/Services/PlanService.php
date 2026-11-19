@@ -58,7 +58,7 @@ class PlanService
                     ->whereColumn('v2_user.id', 'v2_order.user_id')
                     ->whereColumn('v2_user.plan_id', 'v2_order.plan_id')
                     ->where(function ($q) {
-                        $q->whereNull('v2_user.expired_at')->orWhere('v2_user.expired_at', 0)
+                        $q->whereNull('v2_user.expired_at')
                             ->orWhere('v2_user.expired_at', '>', time());
                     });
             })
@@ -138,7 +138,7 @@ class PlanService
         }
 
         $isActiveRenewal = $user->plan_id === $this->plan->id
-            && ($user->expired_at === null || $user->expired_at == 0 || $user->expired_at > time());
+            && ($user->expired_at === null || $user->expired_at > time());
         if (!$isActiveRenewal && !$this->hasCapacity($this->plan)) {
             throw new ApiException(__('Current product is sold out'));
         }
@@ -204,7 +204,7 @@ class PlanService
     protected function validatePlanAvailability(User $user): void
     {
         $isActiveRenewal = $user->plan_id === $this->plan->id
-            && ($user->expired_at === null || $user->expired_at == 0 || $user->expired_at > time());
+            && ($user->expired_at === null || $user->expired_at > time());
         if (!$this->plan->sell && !$isActiveRenewal) {
             throw new ApiException(__('This subscription has been sold out, please choose another subscription'));
         }
@@ -240,7 +240,7 @@ class PlanService
                     ->whereColumn('v2_user.id', 'v2_order.user_id')
                     ->whereColumn('v2_user.plan_id', 'v2_order.plan_id')
                     ->where(function ($q) {
-                        $q->whereNull('v2_user.expired_at')->orWhere('v2_user.expired_at', 0)
+                        $q->whereNull('v2_user.expired_at')
                             ->orWhere('v2_user.expired_at', '>', time());
                     });
             })->distinct()->count('user_id');

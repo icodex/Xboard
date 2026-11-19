@@ -39,9 +39,11 @@ class ClearUser extends Command
      */
     public function handle()
     {
+        // expired_at 的"永不过期"现已统一为 NULL（0 会在写入时归一、历史行由迁移归一），
+        // 这里跟着改，否则垃圾账号永远匹配不到。
         $builder = User::where('plan_id', NULL)
             ->where('transfer_enable', 0)
-            ->where('expired_at', 0)
+            ->whereNull('expired_at')
             ->where('last_login_at', NULL);
         $count = $builder->count();
         if ($builder->delete()) {

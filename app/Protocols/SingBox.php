@@ -2,7 +2,6 @@
 namespace App\Protocols;
 
 use App\Utils\Helper;
-use Illuminate\Support\Arr;
 use App\Support\AbstractProtocol;
 use App\Models\Server;
 use Log;
@@ -992,7 +991,8 @@ class SingBox extends AbstractProtocol
         $transport = match (data_get($protocol_settings, 'network')) {
             'tcp' => data_get($protocol_settings, 'network_settings.header.type') === 'http' ? [
                 'type' => 'http',
-                'path' => Arr::random(data_get($protocol_settings, 'network_settings.header.request.path', ['/'])),
+                // 确定性取值：随机 path 会让订阅正文每次都变，md5 ETag 永不命中
+                'path' => self::pickOne(data_get($protocol_settings, 'network_settings.header.request.path', ['/']), $server['_fp_seed'] ?? null),
                 'host' => data_get($protocol_settings, 'network_settings.header.request.headers.Host', [])
             ] : null,
             'ws' => [

@@ -149,8 +149,9 @@ class Shadowrocket extends AbstractProtocol
             case 'tcp':
                 if (data_get($protocol_settings, 'network_settings.header.type', 'none') !== 'none') {
                     $config['obfs'] = data_get($protocol_settings, 'network_settings.header.type');
-                    $config['path'] = \Illuminate\Support\Arr::random(data_get($protocol_settings, 'network_settings.header.request.path', ['/']));
-                    $config['obfsParam'] = \Illuminate\Support\Arr::random(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['www.example.com']));
+                    // 确定性取值：随机 path/host 会让订阅正文每次都变，md5 ETag 永不命中
+                    $config['path'] = self::pickOne(data_get($protocol_settings, 'network_settings.header.request.path', ['/']), $server['_fp_seed'] ?? null);
+                    $config['obfsParam'] = self::pickOne(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['www.example.com']), $server['_fp_seed'] ?? null);
                 }
                 break;
             case 'ws':
@@ -252,8 +253,9 @@ class Shadowrocket extends AbstractProtocol
             case 'tcp':
                 if (data_get($protocol_settings, 'network_settings.header.type', 'none') !== 'none') {
                     $config['obfs'] = data_get($protocol_settings, 'network_settings.header.type');
-                    $config['path'] = \Illuminate\Support\Arr::random(data_get($protocol_settings, 'network_settings.header.request.path', ['/']));
-                    $config['obfsParam'] = \Illuminate\Support\Arr::random(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['www.example.com']));
+                    // 确定性取值：随机 path/host 会让订阅正文每次都变，md5 ETag 永不命中
+                    $config['path'] = self::pickOne(data_get($protocol_settings, 'network_settings.header.request.path', ['/']), $server['_fp_seed'] ?? null);
+                    $config['obfsParam'] = self::pickOne(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['www.example.com']), $server['_fp_seed'] ?? null);
                 }
                 break;
             case 'ws':

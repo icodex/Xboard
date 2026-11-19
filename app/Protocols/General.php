@@ -4,7 +4,6 @@ namespace App\Protocols;
 
 use App\Models\Server;
 use App\Utils\Helper;
-use Illuminate\Support\Arr;
 use App\Support\AbstractProtocol;
 
 class General extends AbstractProtocol
@@ -142,10 +141,13 @@ class General extends AbstractProtocol
             case 'tcp':
                 if (data_get($protocol_settings, 'network_settings.header.type', 'none') !== 'none') {
                     $config['type'] = data_get($protocol_settings, 'network_settings.header.type', 'http');
-                    $config['path'] = Arr::random(data_get($protocol_settings, 'network_settings.header.request.path', ['/']));
+                    // 确定性取值：Arr::random 会让同一用户每次拿到不同的 path/host，
+                    // 订阅正文随之变化，md5 ETag 永不命中（且对字符串会抛 TypeError）。
+                    $seed = $server['_fp_seed'] ?? null;
+                    $config['path'] = self::pickOne(data_get($protocol_settings, 'network_settings.header.request.path', ['/']), $seed);
                     $config['host'] =
                         data_get($protocol_settings, 'network_settings.header.request.headers.Host')
-                        ? Arr::random(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['/']), )
+                        ? self::pickOne(data_get($protocol_settings, 'network_settings.header.request.headers.Host', ['/']), $seed)
                         : null;
                 }
                 break;

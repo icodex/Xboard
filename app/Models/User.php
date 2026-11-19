@@ -80,6 +80,15 @@ class User extends Authenticatable
     ];
     protected $hidden = ['password'];
 
+    /**
+     * 列默认值是 0（v2board 遗留），而代码只认 NULL 为「永不过期」。
+     * 不给默认属性的话，任何不带 expired_at 的插入都会写成 0：
+     * scopeActive() 匹配不到（用户从节点/订阅里消失），续费也不重置流量。
+     */
+    protected $attributes = [
+        'expired_at' => null,
+    ];
+
     public const COMMISSION_TYPE_SYSTEM = 0;
     public const COMMISSION_TYPE_PERIOD = 1;
     public const COMMISSION_TYPE_ONETIME = 2;
@@ -126,15 +135,26 @@ class User extends Authenticatable
     }
 
     /**
-     * 有效用户：未过期。expired_at = 0 是 v2board 遗留的「永不过期」。
+     * 「永不过期」只保留 NULL 一种表示。
+     *
+     * v2board 遗留用 0；两种表示并存时 OrderService 只把 NULL 当"需要重置流量"，
+     * 于是 expired_at=0 的用户续费后不重置流量（新周期带着旧用量开始）。
+     * 历史数据由 2026_11_19_000002 迁移归一，这里堵住新的写入。
+     */
+    public function setExpiredAtAttribute($value): void
+    {
+        $this->attributes['expired_at'] = ($value === 0 || $value === '0' || $value === '') ? null : $value;
+    }
+
+    /**
+     * 有效用户：未过期。
      * 口径必须与 isActive() 一致。
      */
     public function scopeActive(Builder $query): Builder
     {
         return $query->where(function (Builder $q) {
             $q->where('expired_at', '>', time())
-                ->orWhereNull('expired_at')
-                ->orWhere('expired_at', 0);
+                ->orWhereNull('expired_at');
         });
     }
 
@@ -204,7 +224,7 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return !$this->banned &&
-               ($this->expired_at === null || $this->expired_at > time() || $this->expired_at == 0);
+               ($this->expired_at === null || $this->expired_at > time());
     }
 
     /** 

@@ -74,6 +74,30 @@ abstract class AbstractProtocol
     }
 
     /**
+     * 从「多值配置」里确定性地取一个。
+     *
+     * 同一用户 + 同一节点每次结果一致，订阅正文才稳定、ETag 才能命中（原来用
+     * Arr::random/array_rand，每次轮询都换一个值 → 正文每次都变 → 永远 200）。
+     * 非数组（单值或历史脏数据）原样返回，顺带避免 Arr::random 对字符串抛 TypeError。
+     */
+    protected static function pickOne($value, ?string $seed = null)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $values = array_values($value);
+        if ($values === []) {
+            return null;
+        }
+        if (count($values) === 1 || $seed === null || $seed === '') {
+            return $values[0];
+        }
+
+        return $values[hexdec(substr(md5($seed), 0, 8)) % count($values)];
+    }
+
+    /**
      * 获取协议标识
      *
      * @return array

@@ -235,6 +235,47 @@ class ProtocolOutputTest extends TestCase
         $this->assertSame('xchacha20-ietf-poly1305', $config['servers'][0]['method'] ?? null);
     }
 
+    public function test_multi_valued_obfs_settings_render_identically_every_time(): void
+    {
+        // 旧的 Arr::random / array_rand 每次轮询会挑不同的 path/host，
+        // 订阅正文随之变化，ClientController 的 md5 ETag 永远命中不了。
+        $server = [
+            'id' => 11,
+            'type' => 'vmess',
+            'name' => 'STABLE-VMESS',
+            'host' => 'st.example.com',
+            'port' => 443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            '_fp_seed' => 'seed-value',
+            'protocol_settings' => [
+                'tls' => 0,
+                'network' => 'tcp',
+                'network_settings' => [
+                    'header' => [
+                        'type' => 'http',
+                        'request' => [
+                            'path' => ['/a', '/b', '/c'],
+                            'headers' => ['Host' => ['h1.example.com', 'h2.example.com']],
+                        ],
+                    ],
+                ],
+                'tls_settings' => null,
+                'reality_settings' => null,
+                'multiplex' => null,
+                'utls' => null,
+            ],
+        ];
+
+        $first = General::buildVmess($server['password'], $server);
+        $second = General::buildVmess($server['password'], $server);
+
+        $this->assertSame($first, $second, 'identical body is what lets the md5 etag match');
+
+        $payload = json_decode(base64_decode(trim(substr($first, strlen('vmess://')))), true);
+        $this->assertContains($payload['path'], ['/a', '/b', '/c']);
+        $this->assertContains($payload['host'], ['h1.example.com', 'h2.example.com']);
+    }
+
     private function user(): array
     {
         return [
