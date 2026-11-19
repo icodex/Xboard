@@ -6,6 +6,7 @@ use App\Models\Server;
 use App\Services\DeviceStateService;
 use App\Services\NodeRegistry;
 use App\Services\ServerService;
+use App\Utils\CacheKey;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -13,6 +14,9 @@ use Workerman\Connection\TcpConnection;
 
 class NodeEventHandlers
 {
+    /** 同一节点的设备状态推送最小间隔（秒）：节点侧整表替换，只能压频率 */
+    private const DEVICE_PUSH_MIN_INTERVAL = 30;
+
     /**
      * Handle pong heartbeat
      */
@@ -108,6 +112,17 @@ class NodeEventHandlers
     {
         $node = Server::find($nodeId);
         if (!$node) return;
+
+        // 节点侧的 sync.devices 是整表替换（internal/controlplane/mailbox.go 里
+        // `m.deviceUsers = cloneDeviceUsers(...)`），所以只能推全量；想"只推变化用户"
+        // 必须先给节点加 device delta 事件。这里压的是频率：同一节点 30s 内最多推一次，
+        // 把 10s 一轮的突发上报合并掉，避免每次都对全部用户做一遍查询 + HGETALL。
+        if (!Cache::add(CacheKey::get('DEVICE_PUSH_LAST', $nodeId), 1, self::DEVICE_PUSH_MIN_INTERVAL)) {
+            // 本轮被节流：放回待推集合，窗口过期后的下一轮再推
+            Redis::sadd(CacheKey::get('DEVICE_PUSH_PENDING_NODES'), $nodeId);
+
+            return;
+        }
 
         $users = ServerService::getAvailableUsers($node);
         $userIds = $users->pluck('id')->toArray();

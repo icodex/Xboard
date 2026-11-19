@@ -24,6 +24,32 @@ class ServerSaveValidationTest extends TestCase
         return ValidatorFactory::make($request->all(), $request->rules());
     }
 
+    public function test_obfs_path_and_host_accept_string_or_string_list(): void
+    {
+        $settings = fn ($path, $host) => [
+            'tls' => 0,
+            'network' => 'tcp',
+            'network_settings' => [
+                'header' => [
+                    'type' => 'http',
+                    'request' => ['path' => $path, 'headers' => ['Host' => $host]],
+                ],
+            ],
+        ];
+
+        // both historical shapes stay saveable
+        $this->assertFalse($this->validate($settings('/single', 'one.example.com'), 'vmess')->fails());
+        $this->assertFalse(
+            $this->validate($settings(['/a', '/b'], ['h1.example.com', 'h2.example.com']), 'vmess')->fails()
+        );
+
+        // shapes that would break the subscription bodies are rejected
+        $this->assertTrue($this->validate($settings(123, 'one.example.com'), 'vmess')->fails());
+        $this->assertTrue(
+            $this->validate($settings(['/a', 5], 'one.example.com'), 'vmess')->fails()
+        );
+    }
+
     public function test_kernel_log_level_whitelist(): void
     {
         foreach (['trace', 'debug', 'info', 'warn', 'warning', 'error', 'fatal'] as $level) {

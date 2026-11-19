@@ -29,9 +29,15 @@ class TelegramController extends Controller
             throw new ApiException('telegram bot is not configured', 403);
         }
 
-        $expectedToken = md5($token);
-        if (!hash_equals($expectedToken, (string) $request->input('access_token'))) {
-            throw new ApiException('access_token is error', 401);
+        // 用 Telegram 官方的 secret_token 头校验。旧的 query 里 md5(bot token) 会出现在
+        // 任何访问日志/监控系统里，读到日志就能冒充任意已绑定用户。
+        $secret = (string) admin_setting('telegram_webhook_secret', '');
+        if ($secret === '') {
+            throw new ApiException('telegram webhook secret is not configured; re-register the webhook', 403);
+        }
+
+        if (!hash_equals($secret, (string) $request->header('X-Telegram-Bot-Api-Secret-Token', ''))) {
+            throw new ApiException('invalid telegram secret token', 401);
         }
 
         $data = $request->json()->all();

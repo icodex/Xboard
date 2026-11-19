@@ -59,9 +59,15 @@ class TelegramService
         return $this->request('getMe');
     }
 
-    public function setWebhook(string $url): object
+    public function setWebhook(string $url, ?string $secret = null): object
     {
-        $result = $this->request('setWebhook', ['url' => $url]);
+        $payload = ['url' => $url];
+        if ($secret !== null && $secret !== '') {
+            // Telegram 会把该值放进 X-Telegram-Bot-Api-Secret-Token 头
+            $payload['secret_token'] = $secret;
+        }
+
+        $result = $this->request('setWebhook', $payload);
         return $result;
     }
 

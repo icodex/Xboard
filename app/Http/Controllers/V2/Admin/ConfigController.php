@@ -60,12 +60,19 @@ class ConfigController extends Controller
         if (blank($hookUrl)) {
             return $this->fail([422, 'Telegram Webhook地址未配置']);
         }
-        $hookUrl .= '?' . http_build_query([
-            'access_token' => md5(admin_setting('telegram_bot_token', $request->input('telegram_bot_token')))
-        ]);
+
+        // 校验口令放进 Telegram 的 secret_token（官方会回填到
+        // X-Telegram-Bot-Api-Secret-Token 头），不再拼进 URL——
+        // query string 会进访问日志，读到日志就等于拿到 bot 的通行证。
+        $secret = (string) admin_setting('telegram_webhook_secret', '');
+        if ($secret === '') {
+            $secret = bin2hex(random_bytes(32));
+            admin_setting(['telegram_webhook_secret' => $secret]);
+        }
+
         $telegramService = new TelegramService($request->input('telegram_bot_token'));
         $telegramService->getMe();
-        $telegramService->setWebhook(url: $hookUrl);
+        $telegramService->setWebhook($hookUrl, $secret);
         $telegramService->registerBotCommands();
         return $this->success([
             'success' => true,

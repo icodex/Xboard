@@ -345,6 +345,13 @@ class ServerSave extends FormRequest
     {
         $rules = self::PROTOCOL_RULES[$type] ?? [];
 
+        // tcp+http 伪装的 path / Host：历史数据里既有字符串也有字符串数组，
+        // builder 两种都能处理，但数字/对象会在订阅序列化时报错，保存时就拒掉。
+        if (in_array($type, ['vmess', 'vless', 'trojan'], true)) {
+            $rules['network_settings.header.request.path'] = ['nullable', $this->stringOrStringListRule()];
+            $rules['network_settings.header.request.headers.Host'] = ['nullable', $this->stringOrStringListRule()];
+        }
+
         // 通用入站策略全协议可用；QUIC 调优仅 QUIC 系协议
         $rules = array_merge($rules, self::SNIFF_UDP_RULES);
         if ($type === 'hysteria' || $type === 'tuic') {
@@ -420,6 +427,32 @@ class ServerSave extends FormRequest
             ],
             $this->prefixRules('tls.ech.', self::ECH_RULES),
         );
+    }
+
+    /**
+     * 伪装 path / Host 的合法形状：字符串，或字符串数组（两种历史形态都存在）。
+     */
+    private function stringOrStringListRule(): \Closure
+    {
+        return static function (string $attribute, mixed $value, \Closure $fail): void {
+            if ($value === null || is_string($value)) {
+                return;
+            }
+
+            if (is_array($value)) {
+                foreach ($value as $item) {
+                    if (!is_string($item)) {
+                        $fail("{$attribute} 必须是字符串或字符串数组");
+
+                        return;
+                    }
+                }
+
+                return;
+            }
+
+            $fail("{$attribute} 必须是字符串或字符串数组");
+        };
     }
 
     private function prefixRules(string $prefix, array $rules): array
