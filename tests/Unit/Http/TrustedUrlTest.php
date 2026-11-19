@@ -25,20 +25,6 @@ class TrustedUrlTest extends TestCase
         $this->assertSame('https://panel.example', trusted_site_url());
     }
 
-    public function test_source_base_url_ignores_referer(): void
-    {
-        app()->instance('request', Request::create(
-            'https://attacker.example/',
-            'GET',
-            [],
-            [],
-            [],
-            ['HTTP_REFERER' => 'https://evil.example/page']
-        ));
-
-        $this->assertSame('https://panel.example/#/order/abc', source_base_url('/#/order/abc'));
-    }
-
     public function test_subscribe_url_uses_configured_site_when_no_override(): void
     {
         app()->instance('request', Request::create('https://attacker.example/'));

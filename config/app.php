@@ -186,8 +186,8 @@ return [
         /*
          * Application Service Providers...
          */
-        App\Providers\AuthServiceProvider::class,
-        // App\Providers\BroadcastServiceProvider::class,
+        // AuthServiceProvider（空 policies）与 BroadcastServiceProvider（未注册、无人广播）
+        // 已删除：前者对 Gate 零贡献，后者 require 的 routes/channels.php 永远不会加载。
         App\Providers\EventServiceProvider::class,
         App\Providers\HorizonServiceProvider::class,
         App\Providers\RouteServiceProvider::class,

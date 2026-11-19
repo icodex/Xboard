@@ -105,6 +105,11 @@ class ClientController extends Controller
         $requested = collect(preg_split('/[|,｜]+/', $typeInputString))
             ->map(fn($type) => trim($type))
             ->filter() // Remove empty strings that might result from multiple delimiters
+            // v2ray/hysteria2 是历史别名：不归一的话 ?types=v2ray 交集为空，
+            // 而空交集在过滤阶段等于"不过滤"，会返回客户端不认识的全部类型。
+            ->map(fn($type) => Server::normalizeType($type))
+            ->unique()
+            ->values()
             ->all();
 
         return array_values(array_intersect($requested, Server::VALID_TYPES));
@@ -131,8 +136,11 @@ class ClientController extends Controller
     private function filterServers(array $servers, array $allowedTypes, ?array $filterKeywords): array
     {
         return collect($servers)->filter(function ($server) use ($allowedTypes, $filterKeywords) {
-            // Condition 1: Server type must be in the list of allowed types
-            if ($allowedTypes && !in_array($server['type'], $allowedTypes)) {
+            // Condition 1: Server type must be in the list of allowed types.
+            // parseRequestedTypes() returns every valid type when the caller sends no
+            // types at all, so an empty list here means "asked for types we do not
+            // recognise" and must yield nothing rather than everything.
+            if (!in_array($server['type'], $allowedTypes, true)) {
                 return false; // Filter out (don't keep)
             }
 

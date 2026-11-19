@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\GiftCardCode;
 use App\Models\GiftCardTemplate;
 use App\Models\GiftCardUsage;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
 class GiftCardController extends Controller
@@ -82,6 +84,8 @@ class GiftCardController extends Controller
             'background_image.url' => '背景图片必须是有效的URL',
         ]);
 
+        $this->assertRewardsMatchType((int) $request->input('type'), (array) $request->input('rewards'));
+
         try {
             $template = GiftCardTemplate::create([
                 'name' => $request->input('name'),
@@ -109,6 +113,43 @@ class GiftCardController extends Controller
                 'error' => $e->getMessage(),
             ]);
             return $this->fail([500, '创建失败']);
+        }
+    }
+
+    /**
+     * rewards 必须与卡片类型匹配：套餐卡的 plan_id 必须真实存在、有效期至少 1 天，
+     * 盲盒卡必须有可抽的奖励。否则用户兑换后「码已用、权益没发」。
+     */
+    private function assertRewardsMatchType(int $type, array $rewards): void
+    {
+        $errors = [];
+
+        if (isset($rewards['plan_id'])) {
+            if (!is_numeric($rewards['plan_id']) || !Plan::whereKey((int) $rewards['plan_id'])->exists()) {
+                $errors['rewards.plan_id'] = '奖励里的套餐不存在';
+            }
+        }
+
+        if ($type === GiftCardTemplate::TYPE_PLAN) {
+            if (!isset($rewards['plan_id'])) {
+                $errors['rewards.plan_id'] = '套餐礼品卡必须指定套餐';
+            }
+            if (!isset($rewards['plan_validity_days']) || (int) $rewards['plan_validity_days'] < 1) {
+                $errors['rewards.plan_validity_days'] = '套餐礼品卡必须设置至少 1 天的有效期';
+            }
+        }
+
+        if ($type === GiftCardTemplate::TYPE_MYSTERY) {
+            $random = $rewards['random_rewards'] ?? null;
+            if (!is_array($random) || $random === []) {
+                $errors['rewards.random_rewards'] = '盲盒礼品卡必须配置随机奖励';
+            } elseif (array_sum(array_column($random, 'weight')) <= 0) {
+                $errors['rewards.random_rewards'] = '随机奖励的权重之和必须大于 0';
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
         }
     }
 
@@ -142,6 +183,12 @@ class GiftCardController extends Controller
         if (!$template) {
             return $this->fail([404, '模板不存在']);
         }
+
+        // 只更新部分字段时，用模板现有值补上缺失的一半再校验，避免"改类型不改奖励"
+        $this->assertRewardsMatchType(
+            (int) ($validatedData['type'] ?? $template->type),
+            (array) ($validatedData['rewards'] ?? $template->rewards ?? [])
+        );
 
         try {
             $updateData = collect($validatedData)->except('id')->all();

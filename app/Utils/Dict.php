@@ -20,4 +20,7 @@ class Dict
         'USDT',
         'Paypal'
     ];
+
+    // 统计明细保留月数：reset:log 按此删除，管理端查询区间按此收敛（两边必须一致）
+    CONST STAT_RETENTION_MONTHS = 2;
 }

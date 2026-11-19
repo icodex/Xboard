@@ -51,43 +51,6 @@ class Setting
     }
 
     /**
-     * 删除配置信息
-     */
-    public function remove(string $key): bool
-    {
-        SettingModel::where('name', $key)->delete();
-        $this->flush();
-        return true;
-    }
-
-    /**
-     * 更新单个设置项
-     */
-    public function update(string $key, $value): bool
-    {
-        return $this->set($key, $value);
-    }
-    
-    /**
-     * 批量获取配置项
-     */
-    public function getBatch(array $keys): array
-    {
-        $this->load();
-        $result = [];
-        
-        foreach ($keys as $index => $item) {
-            $isNumericIndex = is_numeric($index);
-            $key = strtolower($isNumericIndex ? $item : $index);
-            $default = $isNumericIndex ? config('v2board.' . $item) : (config('v2board.' . $key) ?? $item);
-            
-            $result[$item] = Arr::get($this->loadedSettings, $key, $default);
-        }
-        
-        return $result;
-    }
-    
-    /**
      * 将所有设置转换为数组
      */
     public function toArray(): array

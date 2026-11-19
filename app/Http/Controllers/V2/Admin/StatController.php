@@ -12,6 +12,7 @@ use App\Models\StatUser;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\StatisticalService;
+use App\Utils\Dict;
 use Illuminate\Http\Request;
 
 class StatController extends Controller
@@ -445,8 +446,11 @@ class StatController extends Controller
         ]);
 
         $type = $request->input('type');
-        $startDate = $request->input('start_time', strtotime('-7 days'));
-        $endDate = $request->input('end_time', time());
+        // 明细只保留 Dict::STAT_RETENTION_MONTHS 个月（reset:log 按此删除）。更早的区间
+        // 查不到数据，返回 0 会被读成"那个月没有流量"，所以收敛到下界并在响应里说明。
+        $retainedSince = strtotime('-' . Dict::STAT_RETENTION_MONTHS . ' month', time());
+        $startDate = max((int) $request->input('start_time', strtotime('-7 days')), $retainedSince);
+        $endDate = (int) $request->input('end_time', time());
         $previousStartDate = $startDate - ($endDate - $startDate);
         $previousEndDate = $startDate;
 
@@ -511,6 +515,8 @@ class StatController extends Controller
 
         return [
             'timestamp' => date('c'),
+            // 前端可据此提示"更早的数据已清理"，而不是把空结果当成没有流量
+            'retained_since' => date('c', $retainedSince),
             'data' => $result
         ];
     }

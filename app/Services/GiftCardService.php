@@ -185,13 +185,17 @@ class GiftCardService
 
         if (isset($rewards['plan_id'])) {
             $plan = Plan::find($rewards['plan_id']);
-            if ($plan) {
-                $userService->assignPlan(
-                    $this->user,
-                    $plan,
-                    $rewards['plan_validity_days'] ?? 0
-                );
+            if (!$plan) {
+                // 模板里的 plan_id 已失效：宁可让整个兑换回滚，也不能把码标成已用
+                // 却什么都没发（redeem() 在事务里，markAsUsed 在其后）。
+                throw new ApiException(__('The plan configured for this gift card no longer exists'));
             }
+
+            $userService->assignPlan(
+                $this->user,
+                $plan,
+                $rewards['plan_validity_days'] ?? 0
+            );
         } else {
             // 只有在不是套餐卡的情况下，才处理独立的有效期奖励
             if (isset($rewards['expire_days']) && $rewards['expire_days'] > 0) {

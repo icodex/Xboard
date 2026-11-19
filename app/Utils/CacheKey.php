@@ -4,70 +4,15 @@ namespace App\Utils;
 
 class CacheKey
 {
-    // 核心缓存键定义
-    const CORE_KEYS = [
-        'EMAIL_VERIFY_CODE' => '邮箱验证码',
-        'LAST_SEND_EMAIL_VERIFY_TIMESTAMP' => '最后一次发送邮箱验证码时间',
-        'TEMP_TOKEN' => '临时令牌',
-        'LAST_SEND_EMAIL_REMIND_TRAFFIC' => '最后发送流量邮件提醒',
-        'SCHEDULE_LAST_CHECK_AT' => '计划任务最后检查时间',
-        'REGISTER_IP_RATE_LIMIT' => '注册频率限制',
-        'LAST_SEND_LOGIN_WITH_MAIL_LINK_TIMESTAMP' => '最后一次发送登入链接时间',
-        'PASSWORD_ERROR_LIMIT' => '密码错误次数限制',
-        'USER_SESSIONS' => '用户session',
-        'FORGET_REQUEST_LIMIT' => '找回密码次数限制',
-        'DEVICE_DB_THROTTLE' => '设备状态DB刷新节流',
-        'DEVICE_PUSH_PENDING_NODES' => '待推送设备状态的节点',
-        'SERVER_USERS_PAYLOAD' => '节点用户名单响应体',
-        'SERVER_USERS_VERSION' => '节点用户名单版本号'
-    ];
-
-    // 允许的缓存键模式（支持通配符）
-    const ALLOWED_PATTERNS = [
-        'SERVER_*_ACTIVE_USER',        // 节点最近一次流量上报里的活跃用户数（并非在线连接数）
-        'SERVER_*_LAST_CHECK_AT',      // 节点最后检查时间
-        'SERVER_*_LAST_PUSH_AT',       // 节点最后推送时间
-        'SERVER_*_LOAD_STATUS',        // 节点负载状态
-        'SERVER_*_LAST_LOAD_AT',       // 节点最后负载提交时间
-        'SERVER_*_METRICS',            // 节点指标数据
-        'USER_ONLINE_CONN_*_*',        // 用户在线连接数 (特定节点类型_ID)
-        'NODE_WS_ALIVE_*',             // 节点 WS 在线标记
-    ];
-
     /**
-     * 生成缓存键
+     * 生成缓存键。
+     *
+     * 旧实现维护了一份 CORE_KEYS 白名单 + 通配模式表，但三个分支返回的是同一个
+     * 字符串，唯一差别是 local 环境多一条警告：既挡不住拼错（照样返回、照样生效），
+     * 也没有任何方位影响。要核对某个键，grep 调用点比维护这份影子清单更可靠。
      */
     public static function get(string $key, mixed $uniqueValue = null): string
     {
-        // 检查是否为核心键
-        if (array_key_exists($key, self::CORE_KEYS)) {
-            return $uniqueValue ? $key . '_' . $uniqueValue : $key;
-        }
-
-        // 检查是否匹配允许的模式
-        if (self::matchesPattern($key)) {
-            return $uniqueValue ? $key . '_' . $uniqueValue : $key;
-        }
-
-        // 开发环境下记录警告，生产环境允许通过
-        if (app()->environment('local', 'development')) {
-            logger()->warning("Unknown cache key used: {$key}");
-        }
-
         return $uniqueValue ? $key . '_' . $uniqueValue : $key;
-    }
-
-    /**
-     * 检查键名是否匹配允许的模式
-     */
-    private static function matchesPattern(string $key): bool
-    {
-        foreach (self::ALLOWED_PATTERNS as $pattern) {
-            $regex = '/^' . str_replace('*', '[A-Za-z0-9_]+', $pattern) . '$/';
-            if (preg_match($regex, $key)) {
-                return true;
-            }
-        }
-        return false;
     }
 }
