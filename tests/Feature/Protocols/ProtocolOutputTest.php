@@ -11,6 +11,8 @@ use App\Protocols\QuantumultX;
 use App\Protocols\Shadowrocket;
 use App\Protocols\Shadowsocks;
 use App\Protocols\SingBox;
+use App\Utils\CacheKey;
+use Illuminate\Support\Facades\Cache;
 use App\Protocols\Stash;
 use App\Protocols\Surge;
 use App\Protocols\Surfboard;
@@ -632,6 +634,38 @@ class ProtocolOutputTest extends TestCase
         $this->assertIsArray($outbound);
         $this->assertSame('n.example.com', $outbound['tls']['server_name']);
         $this->assertArrayNotHasKey('insecure', $outbound['tls'], 'sing-box rejects tls.insecure on the naive outbound');
+    }
+
+    // TCP Brutal 只有 Linux 节点能做；节点通过 capabilities 里上报 mux_brutal。
+    // 客户端开了 brutal 而服务端拒绝时 sing-mux 会断开整条复用连接，所以没上报
+    // 的节点一律不能下发 brutal（否则节点侧只能删掉 brutal 救活，客户端却还带着）。
+    public function test_singbox_multiplex_brutal_requires_node_capability(): void
+    {
+        $server = fn () => [
+            'id' => 907, 'type' => 'vmess', 'name' => 'MUX-BRUTAL',
+            'host' => 'm.example.com', 'port' => 443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls' => 0, 'network' => 'tcp',
+                'multiplex' => [
+                    'enabled' => true, 'protocol' => 'yamux', 'padding' => true,
+                    'brutal' => ['enabled' => true, 'up_mbps' => 100, 'down_mbps' => 100],
+                ],
+            ],
+        ];
+
+        Cache::forget(CacheKey::get('NODE_CAPABILITIES', 907));
+        $without = json_decode((new SingBox($this->user(), [$server()], 'sing-box', '1.14.0', 'SFA/1.14.0'))->handle()->getContent(), true);
+        $out = collect($without['outbounds'])->firstWhere('tag', 'MUX-BRUTAL');
+        $this->assertTrue($out['multiplex']['enabled']);
+        $this->assertSame('yamux', $out['multiplex']['protocol']);
+        $this->assertArrayNotHasKey('brutal', $out['multiplex'], 'no capability -> brutal must not be emitted');
+
+        Cache::put(CacheKey::get('NODE_CAPABILITIES', 907), ['device_delta', 'mux_brutal'], 300);
+        $with = json_decode((new SingBox($this->user(), [$server()], 'sing-box', '1.14.0', 'SFA/1.14.0'))->handle()->getContent(), true);
+        $out = collect($with['outbounds'])->firstWhere('tag', 'MUX-BRUTAL');
+        $this->assertTrue($out['multiplex']['brutal']['enabled'], 'linux node -> brutal kept');
+        $this->assertSame(100, $out['multiplex']['brutal']['up_mbps']);
     }
 
     private function user(): array

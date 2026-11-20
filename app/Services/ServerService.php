@@ -279,6 +279,9 @@ class ServerService
             'limits' => $metrics['limits'] ?? [],
             'updated_at' => now()->timestamp,
             'kernel_status' => (bool) ($metrics['kernel_status'] ?? false),
+            // 节点自报的配置拒绝原因（协议/内核不匹配等）。节点起不来时这是
+            // 唯一能说明原因的信息，空串表示当前配置可用。
+            'config_error' => (string) ($metrics['config_error'] ?? ''),
         ];
 
         Cache::put(

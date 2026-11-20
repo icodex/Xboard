@@ -2,8 +2,10 @@
 namespace App\Protocols;
 
 use App\Utils\Helper;
+use App\Utils\CacheKey;
 use App\Support\AbstractProtocol;
 use App\Models\Server;
+use Cache;
 use Log;
 
 class SingBox extends AbstractProtocol
@@ -667,7 +669,7 @@ class SingBox extends AbstractProtocol
             $array['tls'] = $tlsConfig;
         }
 
-        $this->appendMultiplex($array, $protocol_settings);
+        $this->appendMultiplex($array, $protocol_settings, $server);
 
         if ($transport = $this->buildTransport($protocol_settings, $server)) {
             $array['transport'] = $transport;
@@ -722,7 +724,7 @@ class SingBox extends AbstractProtocol
             $array['tls'] = $tlsConfig;
         }
 
-        $this->appendMultiplex($array, $protocol_settings);
+        $this->appendMultiplex($array, $protocol_settings, $server);
 
         if ($transport = $this->buildTransport($protocol_settings, $server)) {
             $array['transport'] = $transport;
@@ -770,7 +772,7 @@ class SingBox extends AbstractProtocol
         }
         $array['tls'] = $tlsConfig;
 
-        $this->appendMultiplex($array, $protocol_settings);
+        $this->appendMultiplex($array, $protocol_settings, $server);
 
         if ($transport = $this->buildTransport($protocol_settings, $server)) {
             $array['transport'] = $transport;
@@ -1041,7 +1043,7 @@ class SingBox extends AbstractProtocol
         return array_filter($transport, fn($v) => !is_null($v));
     }
 
-    protected function appendMultiplex(&$array, $protocol_settings)
+    protected function appendMultiplex(&$array, $protocol_settings, $server = null)
     {
         if ($multiplex = data_get($protocol_settings, 'multiplex')) {
             if (data_get($multiplex, 'enabled')) {
@@ -1053,7 +1055,7 @@ class SingBox extends AbstractProtocol
                     'max_streams' => data_get($multiplex, 'max_streams'),
                     'padding' => (bool) data_get($multiplex, 'padding', false),
                 ];
-                if (data_get($multiplex, 'brutal.enabled')) {
+                if (data_get($multiplex, 'brutal.enabled') && $this->nodeSupportsMuxBrutal($server)) {
                     $array['multiplex']['brutal'] = [
                         'enabled' => true,
                         'up_mbps' => data_get($multiplex, 'brutal.up_mbps'),
@@ -1063,6 +1065,22 @@ class SingBox extends AbstractProtocol
                 $array['multiplex'] = array_filter($array['multiplex'], fn($v) => !is_null($v));
             }
         }
+    }
+
+    /**
+     * TCP Brutal 只在 Linux 内核上可用（sing-box 官方 TCP Brutal 页的 Server
+     * Requirements）。节点是否具备该能力以它上报的 capabilities 为准：客户端
+     * 开了 brutal 而服务端拒绝时，sing-mux 会直接断掉整条复用连接，不会降级。
+     * 因此没上报 mux_brutal 的节点一律不下发 brutal。
+     */
+    protected function nodeSupportsMuxBrutal($server): bool
+    {
+        $nodeId = data_get($server, 'id');
+        if (!$nodeId) {
+            return false;
+        }
+        $capabilities = Cache::get(CacheKey::get('NODE_CAPABILITIES', $nodeId));
+        return is_array($capabilities) && in_array('mux_brutal', $capabilities, true);
     }
 
     protected function appendUtls(&$tlsConfig, $protocol_settings, $server = null)

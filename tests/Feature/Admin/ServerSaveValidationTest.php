@@ -53,6 +53,48 @@ class ServerSaveValidationTest extends TestCase
         $this->assertSame($settings['network_settings'], $validated['protocol_settings']['network_settings']);
     }
 
+    // 显式钉 xray 内核时，面板必须只放行 xray fork 真的能起的协议/传输：
+    // xboard-node 的 ValidateNodeSpec 会拒收，而拒收在节点侧只表现为一条日志
+    // + 节点永远不启动（例如 hysteria2 + obfs 的节点）。
+    public function test_pinned_xray_kernel_rejects_unsupported_protocols_and_transports(): void
+    {
+        $hy = fn (array $ps) => $this->validate($ps, 'hysteria', ['kernel_type' => 'xray']);
+
+        $this->assertTrue(
+            $hy(['version' => 2, 'obfs' => ['open' => true, 'type' => 'salamander', 'password' => 'x']])->fails(),
+            'xray has no hysteria2 obfs'
+        );
+        $this->assertTrue(
+            $hy(['version' => 1, 'obfs' => ['open' => false]])->fails(),
+            'xray only implements hysteria v2'
+        );
+        $this->assertFalse(
+            $hy(['version' => 2, 'obfs' => ['open' => false]])->fails(),
+            'plain hysteria2 must stay saveable on xray'
+        );
+
+        $this->assertTrue(
+            $this->validate(['tls' => 1], 'tuic', ['kernel_type' => 'xray'])->fails(),
+            'xray has no tuic inbound'
+        );
+        $this->assertTrue(
+            $this->validate(['tls' => 1], 'naive', ['kernel_type' => 'xray'])->fails(),
+            'xray has no naive inbound'
+        );
+        $this->assertTrue(
+            $this->validate(['tls' => 1, 'network' => 'h2'], 'vmess', ['kernel_type' => 'xray'])->fails(),
+            'xray fork removed h2 transport'
+        );
+        $this->assertFalse(
+            $this->validate(['tls' => 1, 'network' => 'ws'], 'vmess', ['kernel_type' => 'xray'])->fails(),
+            'ws stays saveable on xray'
+        );
+        $this->assertFalse(
+            $this->validate(['tls' => 1], 'tuic', ['kernel_type' => 'auto'])->fails(),
+            'auto kernel resolution must not be constrained'
+        );
+    }
+
     // 节点契约（xboard-node ValidateNodeSpec）：tls=2 必须有 private_key 且
     // server_name 或 dest；面板放行会让节点反复启动失败，整个节点掉线。
     public function test_reality_required_fields_when_tls_is_2(): void

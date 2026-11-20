@@ -497,6 +497,32 @@ class ServerSave extends FormRequest
             $protocolRules['cipher'] = 'required|string|' . self::SHADOWSOCKS_CIPHERS_XRAY;
         }
 
+        // 显式 pin 内核时，面板必须只放行该内核真的能起的组合：xboard-node 的
+        // ValidateNodeSpec 会拒收这些配置，而节点侧拒收只表现为一条日志 + 节点
+        // 永远不启动（xray 内核无 hysteria2 obfs、无 tuic/anytls/naive/mieru，
+        // 也已被 fork 移除 h2/http 传输）。这里同口径前置拦截。
+        if ($this->input('kernel_type') === 'xray') {
+            $rules['kernel_type'] = array_merge(explode('|', (string) $rules['kernel_type']), [function (string $attribute, mixed $value, \Closure $fail) use ($type) {
+                $xrayProtocols = [Server::TYPE_VMESS, Server::TYPE_VLESS, Server::TYPE_TROJAN, Server::TYPE_SHADOWSOCKS, Server::TYPE_HYSTERIA];
+                if (!in_array($type, $xrayProtocols, true)) {
+                    $fail("xray 内核只实现 vmess/vless/trojan/shadowsocks/hysteria，{$type} 请改用 singbox 或 auto");
+                    return;
+                }
+                if ($type === Server::TYPE_HYSTERIA) {
+                    if ((int) $this->input('protocol_settings.version', 2) !== 2) {
+                        $fail('xray 内核只支持 hysteria v2，请把版本设为 2 或改用 singbox');
+                    }
+                    if (!empty($this->input('protocol_settings.obfs.open'))) {
+                        $fail('xray 内核不支持 hysteria2 obfs（salamander），请关闭混淆或改用 singbox');
+                    }
+                }
+                $network = (string) $this->input('protocol_settings.network', '');
+                if (in_array($network, ['h2', 'http', 'quic'], true)) {
+                    $fail("xray 内核已移除 {$network} 传输，请改用 ws/grpc/httpupgrade/xhttp 或改用 singbox");
+                }
+            }]);
+        }
+
         foreach ($protocolRules as $field => $rule) {
             $rules['protocol_settings.' . $field] = $rule;
         }
