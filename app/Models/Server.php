@@ -338,6 +338,10 @@ class Server extends Model
             ],
             'tls' => self::TLS_CONFIGURATION,
             'hop_interval' => ['type' => 'integer', 'default' => null],
+            // 管理端历史绑定（hysteria 表单）：ALPN 与端口跳跃范围写在顶层。
+            // alpn 仅 version=1 生效（hy2 必须 h3），port_range 只进订阅（节点单端口）。
+            'alpn' => ['type' => 'string', 'default' => null],
+            'port_range' => ['type' => 'string', 'default' => null],
             // hysteria 专属策略（masquerade/bbr 档位/带宽开关），字段语义与
             // hysteria server.yaml 一一对应；通用 sniff/udpIdleTimeout/quic 见共享常量
             'masquerade' => [

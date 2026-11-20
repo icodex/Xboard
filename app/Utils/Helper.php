@@ -297,6 +297,25 @@ class Helper
         return preg_replace('/\s+/', '', $config);
     }
 
+    // hysteria 的有效 ALPN：tls.alpn 优先；hysteria1 兼容管理端顶层 alpn
+    // （历史表单绑定），hy2 必须 h3，顶层值不参与。返回 null 表示交给客户端/
+    // 内核用协议默认值。
+    public static function hysteriaAlpn($settings): ?array
+    {
+        $alpn = array_values(array_filter((array) data_get($settings, 'tls.alpn')));
+        if ($alpn !== []) {
+            return $alpn;
+        }
+        if ((int) data_get($settings, 'version', 1) === 1) {
+            $legacy = trim((string) data_get($settings, 'alpn'));
+            if ($legacy !== '') {
+                return [$legacy];
+            }
+        }
+
+        return null;
+    }
+
     public static function trimToNull($value): ?string
     {
         if (!is_string($value)) {

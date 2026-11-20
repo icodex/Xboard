@@ -169,6 +169,35 @@ class BuildNodeConfigTest extends TestCase
         $this->assertArrayNotHasKey('udp_relay_mode', $config);
     }
 
+    // 管理端 hysteria 表单把 v1 的 ALPN 写在顶层 alpn；节点只读 tls_settings.alpn。
+    // hy2 的 ALPN 必须 h3，顶层值（表单默认 h2）不能下发给 QUIC 入站。
+    public function test_hysteria_top_level_alpn_applies_to_v1_only(): void
+    {
+        $make = fn (int $version) => Server::create([
+            'name' => "hy-alpn-v{$version}",
+            'type' => Server::TYPE_HYSTERIA,
+            'host' => '127.0.0.1',
+            'port' => 8443,
+            'server_port' => 8443,
+            'rate' => '1',
+            'group_id' => [1],
+            'enabled' => true,
+            'protocol_settings' => [
+                'version' => $version,
+                'alpn' => $version === 1 ? 'hysteria' : 'h2',
+                'bandwidth' => ['up' => 100, 'down' => 100],
+                'tls' => ['server_name' => 'hy.example.com'],
+            ],
+        ]);
+
+        $v1 = $make(1);
+        $this->assertSame('hysteria', $v1->protocol_settings['alpn'], '顶层 alpn 必须落库');
+        $this->assertSame(['hysteria'], ServerService::buildNodeConfig($v1)['tls_settings']['alpn']);
+
+        $v2 = $make(2);
+        $this->assertArrayNotHasKey('alpn', ServerService::buildNodeConfig($v2)['tls_settings']);
+    }
+
     public function test_hysteria_policy_fields_omitted_for_plain_nodes(): void
     {
         $server = Server::create([

@@ -789,8 +789,9 @@ class SingBox extends AbstractProtocol
         ];
         // 支持 1.11.0 版本及以上 `server_ports` 和 `hop_interval` 配置
         if ($this->supportsFeature('sing-box', '1.11.0')) {
-            if (isset($server['ports'])) {
-                $baseConfig['server_ports'] = [str_replace('-', ':', $server['ports'])];
+            $ports = $server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null;
+            if ($ports) {
+                $baseConfig['server_ports'] = [str_replace('-', ':', $ports)];
             }
             if (isset($protocol_settings['hop_interval'])) {
                 $baseConfig['hop_interval'] = "{$protocol_settings['hop_interval']}s";
@@ -799,6 +800,10 @@ class SingBox extends AbstractProtocol
 
         if ($serverName = data_get($protocol_settings, 'tls.server_name')) {
             $baseConfig['tls']['server_name'] = $serverName;
+        }
+        // hysteria1 的 ALPN 可能写在管理端顶层 alpn；hy2 必须 h3，由客户端默认
+        if ($alpn = Helper::hysteriaAlpn($protocol_settings)) {
+            $baseConfig['tls']['alpn'] = $alpn;
         }
         $this->appendEch($baseConfig['tls'], data_get($protocol_settings, 'tls.ech'));
         $speedConfig = [
@@ -843,7 +848,9 @@ class SingBox extends AbstractProtocol
             'tls' => [
                 'enabled' => true,
                 'insecure' => (bool) data_get($protocol_settings, 'tls.allow_insecure', false),
-                'alpn' => data_get($protocol_settings, 'alpn', ['h3']),
+                // 节点侧只下发 tls.alpn（buildNodeConfig 取 tls 对象）；顶层 alpn
+                // 是管理端旧绑定，服务端不读，用它会让客户端与服务端 ALPN 不一致。
+                'alpn' => data_get($protocol_settings, 'tls.alpn') ?: ['h3'],
             ]
         ];
 
@@ -874,7 +881,8 @@ class SingBox extends AbstractProtocol
             'tls' => [
                 'enabled' => true,
                 'insecure' => (bool) data_get($protocol_settings, 'tls.allow_insecure', false),
-                'alpn' => data_get($protocol_settings, 'alpn', ['h3']),
+                // anytls 的 ALPN 存在 tls.alpn（节点下发同一来源）；顶层 alpn 不落库
+                'alpn' => data_get($protocol_settings, 'tls.alpn') ?: ['h3'],
             ]
         ];
 

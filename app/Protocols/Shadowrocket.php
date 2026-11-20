@@ -401,8 +401,8 @@ class Shadowrocket extends AbstractProtocol
                     $params["obfsParam"] = data_get($protocol_settings, 'obfs.password');
                 }
                 $params['insecure'] = data_get($protocol_settings, 'tls.allow_insecure');
-                if (isset($server['ports']))
-                    $params['mport'] = $server['ports'];
+                if ($ports = ($server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null))
+                    $params['mport'] = $ports;
                 $query = http_build_query($params);
                 $addr = Helper::wrapIPv6($server['host']);
 
@@ -431,8 +431,8 @@ class Shadowrocket extends AbstractProtocol
                 if (isset($protocol_settings['hop_interval'])) {
                     $params['keepalive'] = data_get($protocol_settings, 'hop_interval');
                 }
-                if (isset($server['ports'])) {
-                    $params['mport'] = $server['ports'];
+                if ($ports = ($server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null)) {
+                    $params['mport'] = $ports;
                 }
                 $query = http_build_query($params);
                 $addr = Helper::wrapIPv6($server['host']);
@@ -448,7 +448,8 @@ class Shadowrocket extends AbstractProtocol
         $protocol_settings = $server['protocol_settings'];
         $name = rawurlencode($server['name']);
         $params = [
-            'alpn' => data_get($protocol_settings, 'alpn'),
+            // ALPN 以节点下发的 tls.alpn 为准（顶层 alpn 服务端不读）
+            'alpn' => data_get($protocol_settings, 'tls.alpn') ?: ['h3'],
             'sni' => data_get($protocol_settings, 'tls.server_name'),
             'insecure' => data_get($protocol_settings, 'tls.allow_insecure'),
             'congestion_control' => data_get($protocol_settings, 'congestion_control', 'cubic')

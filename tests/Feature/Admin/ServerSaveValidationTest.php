@@ -24,6 +24,81 @@ class ServerSaveValidationTest extends TestCase
         return ValidatorFactory::make($request->all(), $request->rules());
     }
 
+    // Laravel 12 默认 excludeUnvalidatedArrayKeys 会让"有子规则的数组父键"整块从
+    // validated() 消失：network_settings 只定义了 header.request.* 子规则，xhttp 值
+    // 没有 header 时保存后会被 Server 模型补成 null（管理端编辑保存即清空）。
+    public function test_unruled_nested_protocol_settings_survive_validation(): void
+    {
+        $settings = [
+            'tls' => 1,
+            'network' => 'xhttp',
+            'network_settings' => ['path' => '/vlx', 'host' => 'test.local', 'mode' => 'auto'],
+        ];
+
+        $request = ServerSave::create('/', 'POST', [
+            'type' => 'vless',
+            'name' => 'test-node',
+            'host' => '127.0.0.1',
+            'port' => 10010,
+            'server_port' => 10010,
+            'rate' => 1,
+            'protocol_settings' => $settings,
+        ]);
+        $request->setContainer($this->app);
+        $request->setRedirector($this->app['redirect']);
+        $request->validateResolved();
+
+        $validated = $request->validated();
+
+        $this->assertSame($settings['network_settings'], $validated['protocol_settings']['network_settings']);
+    }
+
+    // 节点契约（xboard-node ValidateNodeSpec）：tls=2 必须有 private_key 且
+    // server_name 或 dest；面板放行会让节点反复启动失败，整个节点掉线。
+    public function test_reality_required_fields_when_tls_is_2(): void
+    {
+        $settings = fn (array $reality) => ['tls' => 2, 'network' => 'tcp', 'reality_settings' => $reality];
+
+        $this->assertTrue(
+            $this->validate($settings(['server_name' => 'www.microsoft.com', 'dest' => 'www.microsoft.com:443']), 'vless')->fails(),
+            'missing private_key must be rejected'
+        );
+        $this->assertTrue(
+            $this->validate($settings(['private_key' => 'pk', 'public_key' => 'pub']), 'vless')->fails(),
+            'missing server_name and dest must be rejected'
+        );
+        $this->assertFalse(
+            $this->validate($settings(['private_key' => 'pk', 'server_name' => 'www.microsoft.com']), 'vless')->fails()
+        );
+        $this->assertFalse(
+            $this->validate($settings(['private_key' => 'pk', 'dest' => 'www.microsoft.com:443']), 'vless')->fails()
+        );
+        // tls=1 不触发 Reality 契约
+        $this->assertFalse(
+            $this->validate(['tls' => 1, 'network' => 'tcp', 'tls_settings' => ['server_name' => 't.example.com']], 'vless')->fails()
+        );
+    }
+
+    // 管理端 hysteria 表单字段：v1 ALPN（顶层）与端口跳跃范围
+    public function test_hysteria_alpn_and_port_range(): void
+    {
+        $this->assertFalse($this->validate(['version' => 1, 'alpn' => 'hysteria'], 'hysteria')->fails());
+        $this->assertTrue($this->validate(['version' => 1, 'alpn' => 'ftp'], 'hysteria')->fails());
+
+        foreach (['10000-20000', '443', '443,8443', '10000-20000,30000-40000'] as $range) {
+            $this->assertFalse(
+                $this->validate(['version' => 2, 'port_range' => $range], 'hysteria')->fails(),
+                "port_range={$range} should pass"
+            );
+        }
+        foreach (['abc', '10000-', '1-2-3', '10000-20000;'] as $range) {
+            $this->assertTrue(
+                $this->validate(['version' => 2, 'port_range' => $range], 'hysteria')->fails(),
+                "port_range={$range} should be rejected"
+            );
+        }
+    }
+
     public function test_obfs_path_and_host_accept_string_or_string_list(): void
     {
         $settings = fn ($path, $host) => [
@@ -94,7 +169,9 @@ class ServerSaveValidationTest extends TestCase
         $errors = $this->validate(['tls' => 3, 'network' => 'tcp'], 'vmess')->errors();
         $this->assertTrue($errors->has('protocol_settings.tls'));
 
-        $this->assertFalse($this->validate(['tls' => 2, 'network' => 'tcp'], 'vless')->fails());
+        // tls=2 需满足 Reality 契约（见 test_reality_required_fields_when_tls_is_2）
+        $this->assertTrue($this->validate(['tls' => 2, 'network' => 'tcp'], 'vless')->fails());
+        $this->assertFalse($this->validate(['tls' => 1, 'network' => 'tcp'], 'vless')->fails());
     }
 
     public function test_hysteria_version_must_be_1_or_2(): void

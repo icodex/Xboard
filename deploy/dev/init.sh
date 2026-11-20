@@ -14,7 +14,16 @@ fi
 
 docker cp seed-nodes.php "$CID":/www/seed-nodes.php
 docker cp init.php "$CID":/www/init.php
-docker exec -e PRUNE_STALE=1 -i "$CID" php /www/artisan tinker --execute="require '/www/init.php';"
+# tinker --execute 把异常吞成退出码 0：必须看输出标记，不能只看 $?
+if ! init_out=$(docker exec -e PRUNE_STALE=1 -i "$CID" php /www/artisan tinker --execute="require '/www/init.php';" 2>&1); then
+  echo "$init_out" >&2
+  exit 1
+fi
+printf '%s\n' "$init_out"
+if ! grep -q '^DONE total=' <<<"$init_out"; then
+  echo "init.php did not finish (seed preflight/exception swallowed by tinker):" >&2
+  exit 1
+fi
 
 # secure_path 拼进路由表是启动时求值，必须 restart 重载路由
 docker restart "$CID" >/dev/null
@@ -40,6 +49,12 @@ for script in verify-api.php verify-params.php; do
   # 需要验 user 时显式 VERIFY_MODE=full ./init.sh（不要在测试前跑）。
   if ! out=$(docker exec -e VERIFY_MODE="${VERIFY_MODE:-config}" -i "$CID" php /www/artisan tinker --execute="require '/www/$script';" 2>&1); then
     echo "=== $script FAILED ===" >&2
+    echo "$out" >&2
+    exit 1
+  fi
+  # 同上：异常退出码为 0，只有 RESULT=PASS 才算过
+  if ! grep -q '^RESULT=PASS$' <<<"$out"; then
+    echo "=== $script did not report RESULT=PASS ===" >&2
     echo "$out" >&2
     exit 1
   fi

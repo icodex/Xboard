@@ -360,6 +360,120 @@ class ProtocolOutputTest extends TestCase
         $this->assertStringContainsString('xchacha20-ietf-poly1305', implode(',', (array) $loon));
     }
 
+    // 节点侧只下发 tls.alpn（buildNodeConfig 取 tls 对象），管理端旧绑定写的是顶层
+    // alpn。订阅侧若继续读顶层，用户在面板选的 ALPN 永远不会到服务端，客户端与
+    // 服务端 ALPN 不一致会直接握不上手。
+    public function test_tuic_alpn_follows_tls_settings_not_legacy_top_level_key(): void
+    {
+        $server = [
+            'id' => 16,
+            'type' => 'tuic',
+            'name' => 'TU-ALPN',
+            'host' => 'tu.example.com',
+            'port' => 9443,
+            'protocol_settings' => [
+                'version' => 5,
+                'congestion_control' => 'bbr',
+                'udp_relay_mode' => 'native',
+                'alpn' => ['h2'],
+                'tls' => ['server_name' => 'tu.example.com', 'alpn' => ['h3']],
+            ],
+        ];
+
+        $singbox = json_decode((new SingBox($this->user(), [$server], 'sfa', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($singbox['outbounds'])->firstWhere('tag', 'TU-ALPN');
+        $this->assertSame(['h3'], $outbound['tls']['alpn'], 'sing-box TUIC must use tls.alpn');
+
+        $stash = Stash::buildTuic('11111111-2222-3333-4444-555555555555', $server);
+        $this->assertSame(['h3'], $stash['alpn'], 'stash TUIC must use tls.alpn');
+
+        $clash = ClashMeta::buildTuic('11111111-2222-3333-4444-555555555555', $server);
+        $this->assertSame(['h3'], $clash['alpn'], 'clashmeta TUIC must use tls.alpn');
+    }
+
+    public function test_anytls_alpn_follows_tls_settings(): void
+    {
+        $server = [
+            'id' => 17,
+            'type' => 'anytls',
+            'name' => 'ANY-ALPN',
+            'host' => 'any.example.com',
+            'port' => 443,
+            'protocol_settings' => [
+                'alpn' => ['h2'],
+                'tls' => ['server_name' => 'any.example.com', 'alpn' => ['h3']],
+            ],
+        ];
+
+        $singbox = json_decode((new SingBox($this->user(), [$server], 'sfa', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($singbox['outbounds'])->firstWhere('tag', 'ANY-ALPN');
+        $this->assertSame(['h3'], $outbound['tls']['alpn'], 'sing-box anytls must use tls.alpn');
+    }
+
+    // splithttp 是 xray 的 xhttp 别名（节点侧同一分支）；订阅侧统一归一成 xhttp，
+    // 支持 xhttp 的格式正常输出，sing-box 这类不支持的格式按版本门槛整条过滤，
+    // 不能退化成明文 tcp 出站。
+    public function test_splithttp_node_is_rendered_as_xhttp_transport(): void
+    {
+        $server = [
+            'id' => 52,
+            'type' => 'vless',
+            'name' => 'SPLIT-XHTTP',
+            'host' => 'split.example.com',
+            'port' => 2052,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls' => 0,
+                'network' => 'splithttp',
+                'network_settings' => ['path' => '/split', 'host' => 'example.com', 'mode' => 'auto'],
+                'reality_settings' => null,
+                'multiplex' => null,
+                'utls' => null,
+            ],
+        ];
+
+        $clash = Yaml::parse((new ClashMeta($this->user(), [$server], 'meta', '1.19.10', 'clash-verge/2.0.0'))->handle()->getContent());
+        $proxy = collect($clash['proxies'])->firstWhere('name', 'SPLIT-XHTTP');
+        $this->assertIsArray($proxy, 'clashmeta supports xhttp and must keep the node');
+        $this->assertSame('xhttp', $proxy['network']);
+        $this->assertSame('/split', $proxy['xhttp-opts']['path']);
+
+        $singbox = json_decode((new SingBox($this->user(), [$server], 'sfa', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($singbox['outbounds'])->firstWhere('tag', 'SPLIT-XHTTP');
+        $this->assertNull($outbound, 'sing-box has no xhttp transport; the node must be filtered, not downgraded to tcp');
+    }
+
+    // 管理端 hysteria 表单：v1 ALPN 在顶层 alpn，端口跳跃范围在 port_range；
+    // 订阅侧必须把它们翻成各家客户端的字段，否则"改了没效果"。
+    public function test_hysteria_legacy_alpn_and_port_range_reach_clients(): void
+    {
+        $server = [
+            'id' => 15,
+            'type' => 'hysteria',
+            'name' => 'HY-V1',
+            'host' => 'hy.example.com',
+            'port' => 8443,
+            'protocol_settings' => [
+                'version' => 1,
+                'alpn' => 'hysteria',
+                'port_range' => '10000-20000',
+                'tls' => ['server_name' => 'hy.example.com'],
+                'bandwidth' => ['up' => 100, 'down' => 100],
+                'obfs' => ['open' => false],
+            ],
+        ];
+
+        $clash = ClashMeta::buildHysteria('11111111-2222-3333-4444-555555555555', $server, $this->user());
+        $this->assertSame(['hysteria'], $clash['alpn']);
+        $this->assertSame('10000-20000', $clash['ports']);
+
+        // server_ports 受 sing-box>=1.11 门禁，clientName 必须是 'sing-box'
+        $singbox = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($singbox['outbounds'])->firstWhere('tag', 'HY-V1');
+        $this->assertSame(['hysteria'], $outbound['tls']['alpn']);
+        $this->assertSame(['10000:20000'], $outbound['server_ports']);
+    }
+
     private function user(): array
     {
         return [

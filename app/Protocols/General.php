@@ -376,8 +376,8 @@ class General extends AbstractProtocol
                 $params['obfs'] = 'salamander';
                 $params['obfs-password'] = data_get($protocol_settings, 'obfs.password');
             }
-            if (isset($server['ports'])) {
-                $params['mport'] = $server['ports'];
+            if ($ports = ($server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null)) {
+                $params['mport'] = $ports;
             }
 
             $query = http_build_query($params);
@@ -392,6 +392,9 @@ class General extends AbstractProtocol
             if (data_get($protocol_settings, 'obfs.open') && ($obfsPassword = data_get($protocol_settings, 'obfs.password'))) {
                 $params['obfs'] = 'xplus';
                 $params['obfsParam'] = $obfsPassword;
+            }
+            if ($alpn = Helper::hysteriaAlpn($protocol_settings)) {
+                $params['alpn'] = implode(',', $alpn);
             }
 
             $query = http_build_query($params);
@@ -419,8 +422,9 @@ class General extends AbstractProtocol
             $queryParams['sni'] = $sni;
         }
 
-        // alpn参数，支持多值时用逗号连接
-        if ($alpn = data_get($protocol_settings, 'alpn')) {
+        // alpn参数，支持多值时用逗号连接；以节点下发的 tls.alpn 为准
+        $alpn = data_get($protocol_settings, 'tls.alpn') ?: ['h3'];
+        if ($alpn) {
             if (is_array($alpn)) {
                 $queryParams['alpn'] = implode(',', $alpn);
             } else {

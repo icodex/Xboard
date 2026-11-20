@@ -43,7 +43,10 @@ foreach (Server::whereIn('name', $seededNames)->where('enabled', 1)->get() as $s
     }
 }
 if ($invalid !== []) {
-    throw new \RuntimeException('seed violates ServerSave rules: ' . json_encode($invalid, JSON_UNESCAPED_UNICODE));
+    // tinker --execute 捕获异常后退出码仍是 0，init.sh 靠输出标记判断成败；
+    // 这里同时 exit(1)，让任何调用方都无法把预检失败当成成功。
+    fwrite(STDERR, 'seed violates ServerSave rules: ' . json_encode($invalid, JSON_UNESCAPED_UNICODE) . PHP_EOL);
+    exit(1);
 }
 
 // 种子按名称更新，矩阵改名后旧节点会残留并混进测试表。

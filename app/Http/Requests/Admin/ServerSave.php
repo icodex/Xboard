@@ -8,6 +8,21 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class ServerSave extends FormRequest
 {
+    // Laravel 12 的 excludeUnvalidatedArrayKeys 默认开启：父键带点号子规则时整块从
+    // validated() 丢弃，只按子规则重建。protocol_settings.network_settings 有
+    // header.request.path/headers.Host 子规则，xhttp/ws/tcp 的实际值没有 header，
+    // 于是 network_settings 从校验结果消失，Server::castSettingsWithConfig 再补默认
+    // null——管理端"编辑后保存"即清空节点传输配置（cert_config、hysteria masquerade
+    // 等带子规则的数组同理丢无规则键）。逐字段校验已按原始输入完成，这里保留完整
+    // 数组，收窄交给 Server 模型的按类型白名单。
+    protected function getValidatorInstance()
+    {
+        $validator = parent::getValidatorInstance();
+        $validator->excludeUnvalidatedArrayKeys = false;
+
+        return $validator;
+    }
+
     // utls 与 hop_interval 仅客户端订阅消费（app/Protocols/* 的 uTLS 指纹与端口跳跃），
     // buildNodeConfig 从不下发、节点契约（xboard-node internal/panel/types.go）无此字段。
     // 不是死字段，勿删；想下发节点需节点侧先加字段。
@@ -183,6 +198,9 @@ class ServerSave extends FormRequest
             'bandwidth.down' => 'nullable|integer',
             'bandwidth.disableLossCompensation' => 'nullable|boolean',
             'hop_interval' => 'integer|nullable', // 仅客户端订阅消费（SingBox/ClashMeta 端口跳跃），不下发节点
+            // 管理端 hysteria 表单：v1 ALPN（顶层）与端口跳跃范围
+            'alpn' => 'nullable|string|in:hysteria,http/1.1,h2,h3',
+            'port_range' => ['nullable', 'string', 'regex:/^\d{1,5}(?:-\d{1,5})?(?:,\d{1,5}(?:-\d{1,5})?)*$/'],
             'accept_proxy_protocol' => 'nullable|boolean',
             'masquerade' => 'nullable|array',
             'masquerade.type' => 'nullable|string|in:404,file,proxy,string',
@@ -478,6 +496,30 @@ class ServerSave extends FormRequest
 
         foreach ($protocolRules as $field => $rule) {
             $rules['protocol_settings.' . $field] = $rule;
+        }
+
+        // Reality 下发即节点契约：tls=2 时 xboard-node ValidateNodeSpec 要求
+        // tls_settings（=reality_settings）有 private_key 且 server_name 或 dest。
+        // 面板放行不完整组合会让节点反复启动失败（该节点所有人掉线），这里同口径拦截。
+        // 规则挂在父键上：子键缺失时 Laravel 不会执行子键规则（非 implicit），
+        // 父键 required_if 才能覆盖"整个 reality_settings 没提交"的情况。
+        if ((int) $this->input('protocol_settings.tls') === 2
+            && in_array($type, [Server::TYPE_VMESS, Server::TYPE_VLESS, Server::TYPE_TROJAN], true)) {
+            $rules['protocol_settings.reality_settings'] = [
+                'required_if:protocol_settings.tls,2',
+                'array',
+                function (string $attribute, mixed $value, \Closure $fail) {
+                    if (trim((string) data_get($value, 'private_key')) === '') {
+                        $fail('Reality 需要 reality_settings.private_key');
+
+                        return;
+                    }
+                    if (trim((string) data_get($value, 'server_name')) === ''
+                        && trim((string) data_get($value, 'dest')) === '') {
+                        $fail('Reality 需要 reality_settings.server_name 或 reality_settings.dest');
+                    }
+                },
+            ];
         }
 
         return $rules;

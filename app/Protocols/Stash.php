@@ -467,8 +467,8 @@ class Stash extends AbstractProtocol
         if ($serverName = data_get($protocol_settings, 'tls.server_name')) {
             $array['sni'] = $serverName;
         }
-        if (isset($server['ports'])) {
-            $array['ports'] = $server['ports'];
+        if ($ports = ($server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null)) {
+            $array['ports'] = $ports;
         }
         switch (data_get($protocol_settings, 'version')) {
             case 1:
@@ -502,7 +502,8 @@ class Stash extends AbstractProtocol
             'port' => $server['port'],
             'congestion-controller' => data_get($protocol_settings, 'congestion_control', 'cubic'),
             'udp-relay-mode' => data_get($protocol_settings, 'udp_relay_mode', 'native'),
-            'alpn' => data_get($protocol_settings, 'alpn', ['h3']),
+            // ALPN 以节点下发的 tls.alpn 为准（顶层 alpn 服务端不读）
+            'alpn' => data_get($protocol_settings, 'tls.alpn') ?: ['h3'],
             'reduce-rtt' => true,
             'fast-open' => true,
             'heartbeat-interval' => 10000,

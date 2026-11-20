@@ -63,6 +63,7 @@ abstract class AbstractProtocol
         $this->clientVersion = $clientVersion;
         $this->userAgent = $userAgent;
         $this->protocolRequirements = $this->normalizeProtocolRequirements($this->protocolRequirements);
+        $this->servers = $this->normalizeTransportAliases($this->servers);
         $this->servers = HookManager::filter('protocol.servers.filtered', $this->filterServersByVersion());
         // stable per-user+node seed for Helper::getTlsFingerprint (deterministic subscription bodies);
         // must run after the hook so a replaced server list still gets seeds
@@ -71,6 +72,33 @@ abstract class AbstractProtocol
             $item['_fp_seed'] = $fpToken . ($item['id'] ?? '');
         }
         unset($item);
+    }
+
+    /**
+     * xray 把 splithttp 当 xhttp 的别名（同一传输，节点侧 config.go 同分支处理）。
+     * 各家客户端白名单只有 xhttp：strict 白名单会把 splithttp 节点整条过滤，
+     * 宽松分支会退化成明文 tcp 出站。订阅侧先归一成 xhttp，节点侧语义不变。
+     *
+     * @param array $servers
+     * @return array
+     */
+    protected function normalizeTransportAliases(array $servers): array
+    {
+        foreach ($servers as &$server) {
+            $settings = data_get($server, 'protocol_settings');
+            if (!is_array($settings) || ($settings['network'] ?? null) !== 'splithttp') {
+                continue;
+            }
+            $settings['network'] = 'xhttp';
+            if ($server instanceof \Illuminate\Database\Eloquent\Model) {
+                $server->protocol_settings = $settings;
+            } else {
+                $server['protocol_settings'] = $settings;
+            }
+        }
+        unset($server);
+
+        return $servers;
     }
 
     /**

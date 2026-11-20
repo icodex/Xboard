@@ -288,6 +288,20 @@ class ServerService
         );
     }
 
+    // hysteria 表单把 v1 的 ALPN 写在顶层 alpn（历史绑定），节点只读
+    // tls_settings.alpn；这里把顶层值补进 tls 对象。hy2 的 ALPN 必须 h3，
+    // 顶层值（管理端默认 h2）不参与，避免选中其他值时把 QUIC 握手打不通。
+    private static function hysteriaTlsSettings($protocolSettings): mixed
+    {
+        $tls = data_get($protocolSettings, 'tls');
+        if (($alpn = Helper::hysteriaAlpn($protocolSettings)) !== null) {
+            $tls = is_array($tls) ? $tls : [];
+            $tls['alpn'] = $alpn;
+        }
+
+        return self::cleanTlsSettings($tls);
+    }
+
     // QUIC 内核（hysteria1/tuic）对 alpn=null 与键缺省处理不同：键存在但值为 null
     // 会跳过内核的 h3 兜底，导致握手无 ALPN。下发前剥掉 null 值键，等价于缺省。
     private static function cleanTlsSettings($tls): mixed
@@ -367,7 +381,8 @@ class ServerService
                 // obfs/tls/bandwidth 为 object 型配置，缺省时 cast 层保留 null
                 // 而非补默认对象（API 直写场景可省略），此处全部走 null-safe 读取
                 'server_name' => data_get($protocolSettings, 'tls.server_name'),
-                'tls_settings' => self::cleanTlsSettings(data_get($protocolSettings, 'tls')),
+                // hysteria1 的 ALPN 由管理端写在顶层 alpn，节点只读 tls_settings.alpn
+                'tls_settings' => self::hysteriaTlsSettings($protocolSettings),
                 'up_mbps' => (int) data_get($protocolSettings, 'bandwidth.up'),
                 'down_mbps' => (int) data_get($protocolSettings, 'bandwidth.down'),
                 ...match ((int) $protocolSettings['version']) {

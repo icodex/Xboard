@@ -66,12 +66,13 @@ $nodes[] = ['http', 'HTTP-plain', $port++, ['tls' => 0], []];
 $nodes[] = ['mieru', 'Mieru-udp', $port++, ['transport' => 'UDP', 'traffic_pattern' => ''], []];
 
 // Candidate combinations are deliberately tested rather than asserted compatible.
-// Reality only uses transports with a defined Reality handshake; h2/http and
-// xhttp/splithttp have mutually exclusive kernel support.
+// Reality only uses transports with a defined Reality handshake; h2/http and xhttp
+// have mutually exclusive kernel support. splithttp 不进矩阵：管理端保存白名单已
+// 移除（订阅侧把它归一成 xhttp 输出，节点侧同一分支处理），种子再生成会触发预检。
 foreach (['vmess', 'vless', 'trojan'] as $protocol) {
-    foreach (['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp', 'splithttp'] as $network) {
+    foreach (['tcp', 'ws', 'grpc', 'h2', 'http', 'httpupgrade', 'xhttp'] as $network) {
         foreach ([0, 1, 2] as $tls) {
-            if ($tls === 2 && !in_array($network, ['tcp', 'grpc', 'xhttp', 'splithttp'], true)) {
+            if ($tls === 2 && !in_array($network, ['tcp', 'grpc', 'xhttp'], true)) {
                 continue;
             }
             if ($protocol === 'trojan' && $tls === 0) {

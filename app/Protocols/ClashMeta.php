@@ -553,8 +553,10 @@ class ClashMeta extends AbstractProtocol
             'down' => data_get($protocol_settings, 'bandwidth.down'),
             'skip-cert-verify' => (bool) data_get($protocol_settings, 'tls.allow_insecure', false),
         ];
-        if (isset($server['ports'])) {
-            $array['ports'] = $server['ports'];
+        // 端口跳跃：节点 port 写成区间时用 server['ports']；否则用管理端
+        // hysteria 表单的 port_range（客户端在区间内轮换，服务端只需单端口）
+        if ($ports = ($server['ports'] ?? trim((string) data_get($protocol_settings, 'port_range')) ?: null)) {
+            $array['ports'] = $ports;
         }
         if ($hopInterval = data_get($protocol_settings, 'hop_interval')) {
             $array['hop-interval'] = (int) $hopInterval;
@@ -570,7 +572,7 @@ class ClashMeta extends AbstractProtocol
                 $array['fast-open'] = true;
                 $array['disable_mtu_discovery'] = true;
                 // hysteria1 走 QUIC，客户端必须带 alpn（tuic 分支已有），缺省 h3
-                $array['alpn'] = data_get($protocol_settings, 'tls.alpn') ?: ['h3'];
+                $array['alpn'] = Helper::hysteriaAlpn($protocol_settings) ?: ['h3'];
                 break;
             case 2:
                 $array['type'] = 'hysteria2';
@@ -608,9 +610,8 @@ class ClashMeta extends AbstractProtocol
             $array['sni'] = $serverName;
         }
 
-        if ($alpn = data_get($protocol_settings, 'alpn')) {
-            $array['alpn'] = $alpn;
-        }
+        // ALPN 以节点下发的 tls.alpn 为准（顶层 alpn 服务端不读，选了也不会生效）
+        $array['alpn'] = data_get($protocol_settings, 'tls.alpn') ?: ['h3'];
 
         $array['congestion-controller'] = data_get($protocol_settings, 'congestion_control', 'cubic');
         $array['udp-relay-mode'] = data_get($protocol_settings, 'udp_relay_mode', 'native');
