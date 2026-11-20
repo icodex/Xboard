@@ -19,6 +19,9 @@ class ManageController extends Controller
         $servers = ServerService::getAllServers()->map(function ($item) {
             $item['groups'] = ServerGroup::whereIn('id', $item['group_ids'] ?? [])->get(['name', 'id']);
             $item['parent'] = $item->parent;
+            // 节点自报的配置拒绝原因（协议/内核不匹配、端口被占等）。节点起不来时
+            // kernel_status=false 只是一个布尔值，真正可操作的信息在这里。
+            $item['config_error'] = (string) (data_get($item->metrics, 'config_error') ?? '');
             return $item;
         });
         return $this->success($servers);
