@@ -149,18 +149,15 @@ class SingBox extends AbstractProtocol
                 $ssConfig = $this->buildShadowsocks($item['password'], $item);
                 $proxies[] = $ssConfig;
             }
-            if ($item['type'] === Server::TYPE_TROJAN) {
+            if ($item['type'] === Server::TYPE_TROJAN && $this->singboxTransportSupported($protocol_settings)) {
                 $trojanConfig = $this->buildTrojan($this->user['uuid'], $item);
                 $proxies[] = $trojanConfig;
             }
-            if ($item['type'] === Server::TYPE_VMESS) {
+            if ($item['type'] === Server::TYPE_VMESS && $this->singboxTransportSupported($protocol_settings)) {
                 $vmessConfig = $this->buildVmess($this->user['uuid'], $item);
                 $proxies[] = $vmessConfig;
             }
-            if (
-                $item['type'] === Server::TYPE_VLESS
-                && in_array(data_get($protocol_settings, 'network'), ['tcp', 'ws', 'grpc', 'http', 'h2', 'quic', 'httpupgrade'])
-            ) {
+            if ($item['type'] === Server::TYPE_VLESS && $this->singboxTransportSupported($protocol_settings)) {
                 $vlessConfig = $this->buildVless($this->user['uuid'], $item);
                 $proxies[] = $vlessConfig;
             }
@@ -633,7 +630,9 @@ class SingBox extends AbstractProtocol
             'server' => $server['host'],
             'server_port' => $server['port'],
             'uuid' => $uuid,
-            'security' => 'auto',
+            // 有 TLS 时 sing-box 会把 auto 解析成 zero，xray 的入站不接受
+            // (unknown security type)，因此显式给出两端都支持的具体套件。
+            'security' => data_get($protocol_settings, 'tls') ? 'aes-128-gcm' : 'auto',
             'alter_id' => 0,
         ];
 
@@ -801,10 +800,9 @@ class SingBox extends AbstractProtocol
         if ($serverName = data_get($protocol_settings, 'tls.server_name')) {
             $baseConfig['tls']['server_name'] = $serverName;
         }
-        // hysteria1 的 ALPN 可能写在管理端顶层 alpn；hy2 必须 h3，由客户端默认
-        if ($alpn = Helper::hysteriaAlpn($protocol_settings)) {
-            $baseConfig['tls']['alpn'] = $alpn;
-        }
+        // hysteria1 的 ALPN 可能写在管理端顶层 alpn；hy2 必须 h3，由客户端默认。
+        // v1 服务端只协商 h3，缺少 alpn 会握手失败，所以两边都补上默认值。
+        $baseConfig['tls']['alpn'] = Helper::hysteriaAlpn($protocol_settings) ?: ['h3'];
         $this->appendEch($baseConfig['tls'], data_get($protocol_settings, 'tls.ech'));
         $speedConfig = [
             'up_mbps' => data_get($protocol_settings, 'bandwidth.up'),
@@ -991,6 +989,20 @@ class SingBox extends AbstractProtocol
         return $array;
     }
 
+    /**
+     * 节点传输是否被 sing-box 支持。
+     *
+     * xhttp/splithttp 不在 sing-box 的 transport 列表中：渲染出来会缺少
+     * transport 段，客户端按 tcp 连接不可用。这类节点直接不下发，
+     * 而不是输出一个连不上的 outbound。
+     */
+    private function singboxTransportSupported($protocol_settings): bool
+    {
+        $network = data_get($protocol_settings, 'network');
+        return $network === null || $network === ''
+            || in_array($network, ['tcp', 'ws', 'grpc', 'http', 'h2', 'quic', 'httpupgrade'], true);
+    }
+
     protected function buildTransport(array $protocol_settings, array $server): ?array
     {
         $transport = match (data_get($protocol_settings, 'network')) {
@@ -1003,7 +1015,9 @@ class SingBox extends AbstractProtocol
             'ws' => [
                 'type' => 'ws',
                 'path' => data_get($protocol_settings, 'network_settings.path'),
-                'headers' => ($host = data_get($protocol_settings, 'network_settings.headers.Host')) ? ['Host' => $host] : null,
+                'headers' => ($host = data_get($protocol_settings, 'network_settings.headers.Host')
+                    ?: data_get($protocol_settings, 'network_settings.host'))
+                    ? ['Host' => $host] : null,
                 'max_early_data' => 0,
                 // 'early_data_header_name' => 'Sec-WebSocket-Protocol'
             ],

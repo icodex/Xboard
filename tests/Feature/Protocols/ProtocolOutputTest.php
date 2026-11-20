@@ -474,6 +474,86 @@ class ProtocolOutputTest extends TestCase
         $this->assertSame(['10000:20000'], $outbound['server_ports']);
     }
 
+    // xhttp/splithttp 没有对应的 sing-box transport：VMess/Trojan 必须整条过滤，
+    // 不能输出缺少 transport 段、客户端按明文 tcp 连接的假节点。
+    public function test_singbox_filters_vmess_and_trojan_xhttp(): void
+    {
+        $make = function (string $type, string $name) {
+            return [
+                'id' => 900, 'type' => $type, 'name' => $name,
+                'host' => 'x.example.com', 'port' => 2099,
+                'password' => '11111111-2222-3333-4444-555555555555',
+                'protocol_settings' => [
+                    'tls' => 0, 'network' => 'xhttp',
+                    'network_settings' => ['path' => '/x', 'host' => 'x.example.com'],
+                ],
+            ];
+        };
+        $servers = [$make('vmess', 'X-VMESS'), $make('trojan', 'X-TROJAN')];
+        $config = json_decode((new SingBox($this->user(), $servers, 'sing-box', '', ''))->handle()->getContent(), true);
+        $tags = array_column($config['outbounds'], 'tag');
+        $this->assertNotContains('X-VMESS', $tags);
+        $this->assertNotContains('X-TROJAN', $tags);
+
+        $split = $make('vless', 'X-VLESS');
+        $config = json_decode((new SingBox($this->user(), [$split], 'sing-box', '', ''))->handle()->getContent(), true);
+        $this->assertNotContains('X-VLESS', array_column($config['outbounds'], 'tag'));
+    }
+
+    // hysteria v1 服务端只协商 h3：缺少 ALPN 的客户端会被拒握手。
+    public function test_singbox_hysteria_v1_defaults_alpn_h3(): void
+    {
+        $server = [
+            'id' => 901, 'type' => 'hysteria', 'name' => 'HY1',
+            'host' => 'hy.example.com', 'port' => 443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => ['version' => 1, 'tls' => ['server_name' => 'hy.example.com']],
+        ];
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($config['outbounds'])->firstWhere('tag', 'HY1');
+        $this->assertSame(['h3'], $outbound['tls']['alpn']);
+    }
+
+    // sing-box 把 security=auto 解析成 zero；xray 入站不接受，VMess+TLS 会全挂。
+    public function test_singbox_vmess_tls_uses_concrete_security(): void
+    {
+        $make = function (int $tls, string $name) {
+            return [
+                'id' => 902, 'type' => 'vmess', 'name' => $name,
+                'host' => 'v.example.com', 'port' => 443,
+                'password' => '11111111-2222-3333-4444-555555555555',
+                'protocol_settings' => [
+                    'tls' => $tls,
+                    'tls_settings' => ['server_name' => 'v.example.com'],
+                    'network' => 'tcp',
+                ],
+            ];
+        };
+        $config = json_decode((new SingBox($this->user(), [$make(1, 'V-TLS')], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $this->assertSame('aes-128-gcm', collect($config['outbounds'])->firstWhere('tag', 'V-TLS')['security']);
+
+        $config = json_decode((new SingBox($this->user(), [$make(0, 'V-PLAIN')], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $this->assertSame('auto', collect($config['outbounds'])->firstWhere('tag', 'V-PLAIN')['security']);
+    }
+
+    // 管理端把 ws Host 存在 network_settings.host；只读 headers.Host 会丢 Host 头。
+    public function test_singbox_ws_uses_flat_network_settings_host(): void
+    {
+        $server = [
+            'id' => 903, 'type' => 'vmess', 'name' => 'WS-HOST',
+            'host' => 'v.example.com', 'port' => 443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls' => 1, 'network' => 'ws',
+                'tls_settings' => ['server_name' => 'ws.example.com'],
+                'network_settings' => ['path' => '/ws', 'host' => 'ws.example.com'],
+            ],
+        ];
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $outbound = collect($config['outbounds'])->firstWhere('tag', 'WS-HOST');
+        $this->assertSame(['Host' => 'ws.example.com'], $outbound['transport']['headers']);
+    }
+
     private function user(): array
     {
         return [
