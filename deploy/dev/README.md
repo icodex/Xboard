@@ -11,6 +11,8 @@ sudo -n docker compose up -d --build      # 从本地 Dockerfile 构建 xboard-t
 ./init.sh                                 # 幂等更新协议矩阵、管理员、套餐和交接 prompt
 ```
 
+启动是 fail-fast：`.env` 缺 `INSTALLED=true`（首装未跑）或 `xboard:update`（含 `migrate --force`）失败时容器以 exit 1 退出并靠 `restart: unless-stopped` 可见重试，不会带着未迁移的库对外 500。首装走 `docker compose run --rm xboard php artisan xboard:install`。
+
 已有数据库也须在矩阵更新后运行 `init.sh`。脚本会重置测试管理员密码并按节点名称更新测试节点；不会删除其他节点或清空数据库。
 
 镜像完全由本仓 `deploy/dev/Dockerfile` 构建，**不基于上游 `ghcr.io/cedar2025/xboard`**：

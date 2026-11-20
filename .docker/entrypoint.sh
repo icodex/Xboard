@@ -128,20 +128,38 @@ redis_reachable() {
     esac
 }
 
-if [ ! -s /www/.env ] || ! grep -qE '^INSTALLED=(1|true)$' /www/.env || echo " $* " | grep -q ' xboard:install '; then
-    echo "[entrypoint] Skipping xboard:update (not yet installed or running xboard:install)."
-else
-    if redis_reachable; then
-        echo "[entrypoint] Running xboard:update (redis reachable, real drivers)..."
-        php /www/artisan xboard:update --no-interaction || \
-            echo "[entrypoint] WARNING: xboard:update failed; continuing so supervisor can boot anyway." >&2
-    else
-        echo "[entrypoint] Running xboard:update (redis not yet up, using array/sync drivers)..."
-        CACHE_DRIVER=array QUEUE_CONNECTION=sync SESSION_DRIVER=array \
-            php /www/artisan xboard:update --no-interaction || \
-            echo "[entrypoint] WARNING: xboard:update failed; continuing so supervisor can boot anyway." >&2
-    fi
-fi
+# Fail fast instead of booting into a site where every request 500s:
+# - xboard:install args: the skip is intentional, the installer runs via exec "$@".
+# - .env missing / no INSTALLED=true: nothing has ever run xboard:install;
+#   serving now would 500 (no migrations). Point at the install command.
+# - INSTALLED=true: xboard:update must succeed (it runs `migrate --force`);
+#   if it fails, exit so `restart` retries visibly instead of serving 500s.
+case " $* " in
+    *" xboard:install "*)
+        echo "[entrypoint] Running xboard:install; skipping xboard:update."
+        ;;
+    *)
+        if [ ! -s /www/.env ] || ! grep -qE '^INSTALLED=(1|true)$' /www/.env; then
+            echo "[entrypoint] ERROR: /www/.env is missing or has no INSTALLED=true; refusing to boot an unmigrated site." >&2
+            echo "[entrypoint] First install: docker compose run --rm xboard php artisan xboard:install" >&2
+            exit 1
+        fi
+        if redis_reachable; then
+            echo "[entrypoint] Running xboard:update (redis reachable, real drivers)..."
+            php /www/artisan xboard:update --no-interaction || {
+                echo "[entrypoint] ERROR: xboard:update (migrate) failed; refusing to serve an unmigrated database." >&2
+                exit 1
+            }
+        else
+            echo "[entrypoint] Running xboard:update (redis not yet up, using array/sync drivers)..."
+            CACHE_DRIVER=array QUEUE_CONNECTION=sync SESSION_DRIVER=array \
+                php /www/artisan xboard:update --no-interaction || {
+                echo "[entrypoint] ERROR: xboard:update (migrate) failed; refusing to serve an unmigrated database." >&2
+                exit 1
+            }
+        fi
+        ;;
+esac
 
 echo "[entrypoint] Starting services (caddy=${ENABLE_CADDY} web=${ENABLE_WEB} horizon=${ENABLE_HORIZON} ws=${ENABLE_WS_SERVER})..."
 # Drop stale Octane/WorkerMan state files so the new master does not signal
