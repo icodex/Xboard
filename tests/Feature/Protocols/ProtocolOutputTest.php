@@ -556,28 +556,50 @@ class ProtocolOutputTest extends TestCase
         $this->assertSame(['Host' => 'ws.example.com'], $outbound['transport']['headers']);
     }
 
-    // sing-box 没有 mieru 出站（官方 outbound 列表里没有），下发一条就整份订阅
-    // 报 "unknown outbound type: mieru"，所以必须整条过滤而不是降级。
-    public function test_singbox_filters_mieru_nodes(): void
+    // mieru 出站只存在于 icodex/sing-box fork（0d90d64），形态必须匹配
+    // option/mieru.go：transport 是平铺字符串。此前嵌套 transport:{type:...}
+    // 在 fork 上也是 decode 错误，等于给 fork 用户下发整份坏订阅。
+    public function test_singbox_emits_mieru_with_flat_fork_schema(): void
     {
-        $mieru = [
-            'id' => 904, 'type' => 'mieru', 'name' => 'MIERU-UDP',
-            'host' => 'm.example.com', 'port' => 9100,
+        $server = [
+            'id' => 906, 'type' => 'mieru', 'name' => 'MIERU-UDP',
+            'host' => 'mi.example.com', 'port' => 9100,
             'password' => '11111111-2222-3333-4444-555555555555',
-            'protocol_settings' => ['transport' => 'UDP', 'username' => 'u', 'password' => 'p'],
+            'protocol_settings' => ['transport' => 'UDP', 'traffic_pattern' => 'GgQIARAK'],
         ];
 
-        $config = json_decode((new SingBox($this->user(), [$mieru], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
-        $this->assertNull(
-            collect($config['outbounds'])->firstWhere('tag', 'MIERU-UDP'),
-            'sing-box cannot parse a mieru outbound; the node must be filtered, not emitted'
-        );
-        foreach ($config['outbounds'] as $outbound) {
-            $this->assertNotSame('mieru', $outbound['type'] ?? null);
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.14.4', 'SFA/1.14.4'))->handle()->getContent(), true);
+        $outbound = collect($config['outbounds'])->firstWhere('tag', 'MIERU-UDP');
+        $this->assertIsArray($outbound, 'fork sing-box must keep mieru nodes');
+        $this->assertSame('mieru', $outbound['type']);
+        $this->assertSame('UDP', $outbound['transport'], 'fork schema: transport is a flat string');
+        $this->assertIsString($outbound['transport']);
+        $this->assertSame('GgQIARAK', $outbound['traffic_pattern']);
+        $this->assertSame('11111111-2222-3333-4444-555555555555', $outbound['username']);
+        $this->assertSame('11111111-2222-3333-4444-555555555555', $outbound['password']);
+    }
+
+    // 上游 sing-box 没有 mieru 出站：hiddify/sfm 这类上游 App 的 flag 下不发
+    // mieru，否则它们的整份订阅也加载失败；fork 客户端走 flag=sing-box。
+    public function test_singbox_hiddify_and_sfm_flags_skip_mieru(): void
+    {
+        $server = [
+            'id' => 906, 'type' => 'mieru', 'name' => 'MIERU-UDP',
+            'host' => 'mi.example.com', 'port' => 9100,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => ['transport' => 'UDP'],
+        ];
+
+        foreach (['hiddify' => '2.0.0', 'sfm' => '1.0'] as $flag => $version) {
+            $config = json_decode((new SingBox($this->user(), [$server], $flag, $version, strtoupper($flag)))->handle()->getContent(), true);
+            $this->assertNull(
+                collect($config['outbounds'])->firstWhere('tag', 'MIERU-UDP'),
+                "$flag bundles upstream sing-box: mieru would break the whole document"
+            );
         }
     }
 
-    // sing-box 的 REALITY 客户端硬性要求 uTLS（common/tls/reality_client.go），
+    // sing-box 的 REALITY 客户端硬性要求 uTLS    // sing-box 的 REALITY 客户端硬性要求 uTLS（common/tls/reality_client.go），
     // 缺 utls 会让整份配置 initialize 失败，所以每次都要带指纹。
     public function test_singbox_reality_outbounds_always_carry_utls(): void
     {

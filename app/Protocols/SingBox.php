@@ -22,9 +22,10 @@ class SingBox extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
         Server::TYPE_NAIVE,
-        // TYPE_MIERU excluded: sing-box has no mieru outbound (see
-        // https://sing-box.sagernet.org/configuration/outbound/ — mihomo handles mieru,
-        // sing-box rejects the whole document with "unknown outbound type: mieru").
+        // TYPE_MIERU：仅 icodex/sing-box fork（0d90d64）实现了 mieru 出站，上游没有。
+        // 下发形态必须匹配 fork 的 option/mieru.go（transport 是平铺字符串）；
+        // 上游 sing-box 仍会报 "unknown outbound type: mieru"，见 buildMieru 注释。
+        Server::TYPE_MIERU,
     ];
     private $config;
     const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.sing-box.json';
@@ -117,6 +118,12 @@ class SingBox extends AbstractProtocol
                     1 => '1.5.0'
                 ]
             ],
+            'mieru' => [
+                // mieru 只存在于 icodex fork（基于 1.14.x）；上游没有该出站。
+                // 版本号无法区分 fork 与上游，这里沿用 1.12.0 的旧门槛仅为
+                // 挡住明显过旧的客户端，fork 客户端按 1.14.x 正常通过。
+                'base_version' => '1.12.0'
+            ],
         ]
     ];
 
@@ -187,6 +194,12 @@ class SingBox extends AbstractProtocol
             }
             if ($item['type'] === Server::TYPE_NAIVE) {
                 $proxies[] = $this->buildNaive($this->user['uuid'], $item);
+            }
+            // mieru 出站只有 icodex fork 认识：仅对 flag=sing-box 的客户端下发。
+            // hiddify/sfm 打包的是上游 sing-box，收到 mieru 会让它们整份订阅
+            // 加载失败；fork 客户端请使用 flag=sing-box。
+            if ($item['type'] === Server::TYPE_MIERU && $this->clientName === 'sing-box') {
+                $proxies[] = $this->buildMieru($this->user['uuid'], $item);
             }
         }
         foreach ($outbounds as &$outbound) {
@@ -975,6 +988,33 @@ class SingBox extends AbstractProtocol
         ];
         if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
             $array['tls']['server_name'] = $serverName;
+        }
+
+        return $array;
+    }
+
+    /**
+     * mieru 出站：形态必须匹配 icodex/sing-box fork 的 option/mieru.go ——
+     * transport 是平铺字符串（"TCP"/"UDP"），traffic_pattern 同理；此前嵌套
+     * 的 transport:{type:...} 在 fork 上也是 decode 错误，上游则连 mieru
+     * 类型都不存在。username/password 对应节点入站的 users[].name/password（均为 uuid）。
+     * 上游 sing-box 没有 mieru 出站：含 mieru 节点的订阅在纯上游客户端上
+     * 无法加载，这是 fork 补丁的固有限制，客户端可用 filter/types 自行排除。
+     */
+    protected function buildMieru($password, $server): array
+    {
+        $protocol_settings = data_get($server, 'protocol_settings', []);
+        $array = [
+            'type' => 'mieru',
+            'tag' => $server['name'],
+            'server' => $server['host'],
+            'server_port' => $server['port'],
+            'username' => $password,
+            'password' => $password,
+            'transport' => strtoupper(data_get($protocol_settings, 'transport', 'TCP')),
+        ];
+        if ($pattern = data_get($protocol_settings, 'traffic_pattern')) {
+            $array['traffic_pattern'] = $pattern;
         }
 
         return $array;
