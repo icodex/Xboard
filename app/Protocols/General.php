@@ -424,13 +424,7 @@ class General extends AbstractProtocol
 
         // alpn参数，支持多值时用逗号连接；以节点下发的 tls.alpn 为准
         $alpn = data_get($protocol_settings, 'tls.alpn') ?: ['h3'];
-        if ($alpn) {
-            if (is_array($alpn)) {
-                $queryParams['alpn'] = implode(',', $alpn);
-            } else {
-                $queryParams['alpn'] = $alpn;
-            }
-        }
+        $queryParams['alpn'] = is_array($alpn) ? implode(',', $alpn) : $alpn;
 
         // congestion_controller参数，默认cubic
         $congestion = data_get($protocol_settings, 'congestion_control', 'cubic');

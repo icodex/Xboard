@@ -18,7 +18,10 @@ class ServerSave extends FormRequest
     protected function getValidatorInstance()
     {
         $validator = parent::getValidatorInstance();
-        $validator->excludeUnvalidatedArrayKeys = false;
+        // 契约接口没有该开关，实际实现（Illuminate\Validation\Validator）才有
+        if ($validator instanceof \Illuminate\Validation\Validator) {
+            $validator->excludeUnvalidatedArrayKeys = false;
+        }
 
         return $validator;
     }

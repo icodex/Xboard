@@ -91,7 +91,7 @@ abstract class AbstractProtocol
             }
             $settings['network'] = 'xhttp';
             if ($server instanceof \Illuminate\Database\Eloquent\Model) {
-                $server->protocol_settings = $settings;
+                $server->setAttribute('protocol_settings', $settings);
             } else {
                 $server['protocol_settings'] = $settings;
             }
