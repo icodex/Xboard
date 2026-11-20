@@ -523,6 +523,19 @@ class ServerSave extends FormRequest
             }]);
         }
 
+        // singbox pin 的对称校验：sing-box fork 没有 xhttp/splithttp/kcp/mkcp/quic
+        // 入站（kcp/quic 双内核都无），只有 xray 才能跑这类传输；ResolveKernelForTransport
+        // 会把这种 pin 静默 flip 到 xray，管理端看到的 pin 与实际内核不一致。
+        // 这里前置拦截，让管理员显式选 xray 或改传输。
+        if ($this->input('kernel_type') === 'singbox') {
+            $rules['kernel_type'] = array_merge(explode('|', (string) $rules['kernel_type']), [function (string $attribute, mixed $value, \Closure $fail) use ($type) {
+                $network = (string) $this->input('protocol_settings.network', '');
+                if (in_array($network, ['xhttp', 'splithttp', 'kcp', 'mkcp', 'quic'], true)) {
+                    $fail("sing-box 内核不支持 {$network} 传输（只有 xray 能跑），请改用 xray 内核或改传输");
+                }
+            }]);
+        }
+
         foreach ($protocolRules as $field => $rule) {
             $rules['protocol_settings.' . $field] = $rule;
         }

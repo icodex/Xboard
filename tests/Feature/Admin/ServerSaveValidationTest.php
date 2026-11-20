@@ -95,6 +95,34 @@ class ServerSaveValidationTest extends TestCase
         );
     }
 
+    // singbox pin 的对称校验：sing-box 没有 xhttp/splithttp/kcp/mkcp/quic 入站，
+    // 只有 xray 能跑这类传输；放行会让节点侧静默 flip 内核，管理端看到的
+    // pin 与实际运行的内核不一致。
+    public function test_pinned_singbox_kernel_rejects_xray_only_transports(): void
+    {
+        $this->assertTrue(
+            $this->validate(['tls' => 1, 'network' => 'xhttp', 'network_settings' => ['path' => '/x']], 'vless', ['kernel_type' => 'singbox'])->fails(),
+            'sing-box has no xhttp inbound'
+        );
+        $this->assertTrue(
+            $this->validate(['tls' => 0, 'network' => 'kcp'], 'vmess', ['kernel_type' => 'singbox'])->fails(),
+            'sing-box has no kcp inbound'
+        );
+        $this->assertTrue(
+            $this->validate(['tls' => 1, 'network' => 'quic'], 'vmess', ['kernel_type' => 'singbox'])->fails(),
+            'neither kernel serves quic, and a singbox pin cannot flip to xray either'
+        );
+
+        $this->assertFalse(
+            $this->validate(['tls' => 1, 'network' => 'ws'], 'vless', ['kernel_type' => 'singbox'])->fails(),
+            'ws stays saveable on sing-box'
+        );
+        $this->assertFalse(
+            $this->validate(['tls' => 1, 'network' => 'xhttp', 'network_settings' => ['path' => '/x']], 'vless', ['kernel_type' => 'auto'])->fails(),
+            'auto resolution must not be constrained'
+        );
+    }
+
     // 节点契约（xboard-node ValidateNodeSpec）：tls=2 必须有 private_key 且
     // server_name 或 dest；面板放行会让节点反复启动失败，整个节点掉线。
     public function test_reality_required_fields_when_tls_is_2(): void
