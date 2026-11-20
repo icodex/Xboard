@@ -20,7 +20,9 @@ class SingBox extends AbstractProtocol
         Server::TYPE_SOCKS,
         Server::TYPE_HTTP,
         Server::TYPE_NAIVE,
-        Server::TYPE_MIERU,
+        // TYPE_MIERU excluded: sing-box has no mieru outbound (see
+        // https://sing-box.sagernet.org/configuration/outbound/ — mihomo handles mieru,
+        // sing-box rejects the whole document with "unknown outbound type: mieru").
     ];
     private $config;
     const CUSTOM_TEMPLATE_FILE = 'resources/rules/custom.sing-box.json';
@@ -101,17 +103,17 @@ class SingBox extends AbstractProtocol
                 ]
             ],
             'naive' => [
+                // NaiveProxy outbound exists since sing-box 1.13.0, and only on
+                // builds with with_naive_outbound.
+                'base_version' => '1.13.0',
                 'protocol_settings.tls_settings.ech.enabled' => [
-                    1 => '1.5.0'
+                    1 => '1.13.0'
                 ]
             ],
             'http' => [
                 'protocol_settings.tls_settings.ech.enabled' => [
                     1 => '1.5.0'
                 ]
-            ],
-            'mieru' => [
-                'base_version' => '1.12.0'
             ],
         ]
     ];
@@ -183,9 +185,6 @@ class SingBox extends AbstractProtocol
             }
             if ($item['type'] === Server::TYPE_NAIVE) {
                 $proxies[] = $this->buildNaive($this->user['uuid'], $item);
-            }
-            if ($item['type'] === Server::TYPE_MIERU) {
-                $proxies[] = $this->buildMieru($this->user['uuid'], $item);
             }
         }
         foreach ($outbounds as &$outbound) {
@@ -661,6 +660,7 @@ class SingBox extends AbstractProtocol
                         'public_key' => data_get($protocol_settings, 'reality_settings.public_key'),
                         'short_id' => data_get($protocol_settings, 'reality_settings.short_id')
                     ];
+                    $this->appendRealityUtls($tlsConfig, $protocol_settings, $server);
                     break;
             }
 
@@ -715,6 +715,7 @@ class SingBox extends AbstractProtocol
                         'public_key' => data_get($protocol_settings, 'reality_settings.public_key'),
                         'short_id' => data_get($protocol_settings, 'reality_settings.short_id')
                     ];
+                    $this->appendRealityUtls($tlsConfig, $protocol_settings, $server);
                     break;
             }
 
@@ -764,6 +765,9 @@ class SingBox extends AbstractProtocol
         }
 
         $this->appendUtls($tlsConfig, $protocol_settings, $server);
+        if ($tlsMode === 2) {
+            $this->appendRealityUtls($tlsConfig, $protocol_settings, $server);
+        }
         $array['tls'] = $tlsConfig;
 
         $this->appendMultiplex($array, $protocol_settings);
@@ -960,31 +964,16 @@ class SingBox extends AbstractProtocol
             'password' => $password,
         ];
 
+        // sing-box naive outbound accepts only server_name / certificate /
+        // certificate_path / ech in tls (see the Naive outbound docs); sending
+        // "insecure" makes the whole config fail with
+        // "initialize outbound[N]: insecure is not supported on naive outbound".
         $array['tls'] = [
             'enabled' => true,
-            'insecure' => (bool) data_get($protocol_settings, 'tls_settings.allow_insecure', false),
         ];
         if ($serverName = data_get($protocol_settings, 'tls_settings.server_name')) {
             $array['tls']['server_name'] = $serverName;
         }
-
-        return $array;
-    }
-
-    protected function buildMieru($password, $server): array
-    {
-        $protocol_settings = data_get($server, 'protocol_settings', []);
-        $array = [
-            'type' => 'mieru',
-            'tag' => $server['name'],
-            'server' => $server['host'],
-            'server_port' => $server['port'],
-            'username' => $password,
-            'password' => $password,
-            'transport' => [
-                'type' => strtoupper(data_get($protocol_settings, 'transport', 'TCP')),
-            ],
-        ];
 
         return $array;
     }
@@ -1086,6 +1075,26 @@ class SingBox extends AbstractProtocol
                 ];
             }
         }
+    }
+
+    /**
+     * sing-box 的 REALITY 客户端强制要求 uTLS
+     * (common/tls/reality_client.go: "uTLS is required by reality client")。
+     * 节点没开 uTLS 时整份订阅会卡在 initialize outbound[N] 而完全不可加载，
+     * 所以这里兜底补一个指纹；指纹按 _fp_seed 确定性选取，保持正文与 ETag 稳定。
+     */
+    protected function appendRealityUtls(&$tlsConfig, $protocol_settings, $server = null): void
+    {
+        if (!empty($tlsConfig['utls']['enabled'])) {
+            return;
+        }
+        $tlsConfig['utls'] = [
+            'enabled' => true,
+            'fingerprint' => Helper::getTlsFingerprint(
+                data_get($protocol_settings, 'utls'),
+                $server['_fp_seed'] ?? null
+            ) ?: 'chrome',
+        ];
     }
 
     protected function appendEch(&$tlsConfig, $ech): void

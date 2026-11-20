@@ -554,6 +554,86 @@ class ProtocolOutputTest extends TestCase
         $this->assertSame(['Host' => 'ws.example.com'], $outbound['transport']['headers']);
     }
 
+    // sing-box 没有 mieru 出站（官方 outbound 列表里没有），下发一条就整份订阅
+    // 报 "unknown outbound type: mieru"，所以必须整条过滤而不是降级。
+    public function test_singbox_filters_mieru_nodes(): void
+    {
+        $mieru = [
+            'id' => 904, 'type' => 'mieru', 'name' => 'MIERU-UDP',
+            'host' => 'm.example.com', 'port' => 9100,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => ['transport' => 'UDP', 'username' => 'u', 'password' => 'p'],
+        ];
+
+        $config = json_decode((new SingBox($this->user(), [$mieru], 'sing-box', '1.12.0', 'SFA/1.12.0'))->handle()->getContent(), true);
+        $this->assertNull(
+            collect($config['outbounds'])->firstWhere('tag', 'MIERU-UDP'),
+            'sing-box cannot parse a mieru outbound; the node must be filtered, not emitted'
+        );
+        foreach ($config['outbounds'] as $outbound) {
+            $this->assertNotSame('mieru', $outbound['type'] ?? null);
+        }
+    }
+
+    // sing-box 的 REALITY 客户端硬性要求 uTLS（common/tls/reality_client.go），
+    // 缺 utls 会让整份配置 initialize 失败，所以每次都要带指纹。
+    public function test_singbox_reality_outbounds_always_carry_utls(): void
+    {
+        $make = function (string $type, string $name) {
+            return [
+                'id' => crc32($name), 'type' => $type, 'name' => $name,
+                'host' => 'r.example.com', 'port' => 8443,
+                'password' => '11111111-2222-3333-4444-555555555555',
+                'protocol_settings' => [
+                    'tls' => 2,
+                    'network' => 'tcp',
+                    'reality_settings' => [
+                        'server_name' => 'www.microsoft.com',
+                        'public_key' => 'PUBKEY',
+                        'short_id' => '0123abcd',
+                        'allow_insecure' => false,
+                    ],
+                    'tls_settings' => ['server_name' => 'test.local'],
+                    'utls' => null,
+                ],
+            ];
+        };
+
+        $config = json_decode(
+            (new SingBox($this->user(), [$make('vmess', 'VM-REALITY'), $make('vless', 'VL-REALITY'), $make('trojan', 'TJ-REALITY')], 'sing-box', '1.12.0', 'SFA/1.12.0'))
+                ->handle()->getContent(),
+            true
+        );
+
+        foreach (['VM-REALITY', 'VL-REALITY', 'TJ-REALITY'] as $tag) {
+            $outbound = collect($config['outbounds'])->firstWhere('tag', $tag);
+            $this->assertIsArray($outbound, "$tag must be emitted");
+            $this->assertTrue($outbound['tls']['reality']['enabled']);
+            $this->assertTrue($outbound['tls']['utls']['enabled'], "$tag reality needs uTLS");
+            $this->assertNotEmpty($outbound['tls']['utls']['fingerprint']);
+        }
+    }
+
+    // sing-box 的 naive 出站只接受 server_name/certificate/certificate_path/ech，
+    // 带 "insecure" 会整份配置报 "insecure is not supported on naive outbound"。
+    public function test_singbox_naive_omits_unsupported_insecure(): void
+    {
+        $server = [
+            'id' => 905, 'type' => 'naive', 'name' => 'NAIVE-TLS',
+            'host' => 'n.example.com', 'port' => 8443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls_settings' => ['server_name' => 'n.example.com', 'allow_insecure' => true],
+            ],
+        ];
+
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.13.0', 'SFA/1.13.0'))->handle()->getContent(), true);
+        $outbound = collect($config['outbounds'])->firstWhere('tag', 'NAIVE-TLS');
+        $this->assertIsArray($outbound);
+        $this->assertSame('n.example.com', $outbound['tls']['server_name']);
+        $this->assertArrayNotHasKey('insecure', $outbound['tls'], 'sing-box rejects tls.insecure on the naive outbound');
+    }
+
     private function user(): array
     {
         return [
