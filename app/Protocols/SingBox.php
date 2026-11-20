@@ -1045,6 +1045,12 @@ class SingBox extends AbstractProtocol
 
     protected function appendMultiplex(&$array, $protocol_settings, $server = null)
     {
+        // xray 内核的入站只认 mux.cool，而 sing-box/mihomo 客户端只能发
+        // smux/yamux/h2mux：给 xray 节点下发 multiplex 等于让客户端连不上。
+        // 内核以节点上报为准（auto 模式会切换）。
+        if (!self::nodeRunsSingbox($server)) {
+            return;
+        }
         if ($multiplex = data_get($protocol_settings, 'multiplex')) {
             if (data_get($multiplex, 'enabled')) {
                 $array['multiplex'] = [

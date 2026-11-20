@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use App\Services\Plugin\HookManager;
+use App\Utils\CacheKey;
+use Cache;
 
 abstract class AbstractProtocol
 {
@@ -141,6 +143,36 @@ abstract class AbstractProtocol
      * @return mixed
      */
     abstract public function handle();
+
+    /**
+     * 节点当前实际运行的内核（"sing-box" / "xray"），来自节点上报的 metrics。
+     * auto 模式会按协议/传输在两个内核间切换，面板只能以节点自报为准；
+     * 未上报（刚启动或节点离线）返回 null，调用方按"未知"处理。
+     */
+    protected static function nodeKernel($server): ?string
+    {
+        $nodeId = data_get($server, 'parent_id') ?: data_get($server, 'id');
+        if (!$nodeId) {
+            return null;
+        }
+        $type = strtoupper((string) data_get($server, 'type'));
+        $metrics = Cache::get(CacheKey::get("SERVER_{$type}_METRICS", $nodeId));
+        if (!is_array($metrics)) {
+            return null;
+        }
+        $kernel = (string) ($metrics['kernel'] ?? '');
+        return $kernel === '' ? null : $kernel;
+    }
+
+    /**
+     * 只有 sing-box 内核的节点能消费 mux：sing-box 的入站支持
+     * smux/yamux/h2mux，xray 内核只说 mux.cool，而 sing-box/mihomo 客户端
+     * 都无法表达 mux.cool，下发 mux 只会让整条复用连接连不上。
+     */
+    protected static function nodeRunsSingbox($server): bool
+    {
+        return self::nodeKernel($server) === 'sing-box';
+    }
 
     /**
      * 根据客户端版本过滤不兼容的服务器

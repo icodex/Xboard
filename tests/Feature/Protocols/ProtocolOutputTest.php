@@ -654,6 +654,9 @@ class ProtocolOutputTest extends TestCase
             ],
         ];
 
+        // The node reports its running kernel; multiplex is only emitted for the
+        // sing-box kernel (xray inbound only speaks mux.cool).
+        Cache::put(CacheKey::get('SERVER_VMESS_METRICS', 907), ['kernel' => 'sing-box'], 300);
         Cache::forget(CacheKey::get('NODE_CAPABILITIES', 907));
         $without = json_decode((new SingBox($this->user(), [$server()], 'sing-box', '1.14.0', 'SFA/1.14.0'))->handle()->getContent(), true);
         $out = collect($without['outbounds'])->firstWhere('tag', 'MUX-BRUTAL');
@@ -666,6 +669,37 @@ class ProtocolOutputTest extends TestCase
         $out = collect($with['outbounds'])->firstWhere('tag', 'MUX-BRUTAL');
         $this->assertTrue($out['multiplex']['brutal']['enabled'], 'linux node -> brutal kept');
         $this->assertSame(100, $out['multiplex']['brutal']['up_mbps']);
+    }
+
+    // xray 内核的入站只认 mux.cool，而 sing-box/mihomo 客户端只能发
+    // smux/yamux/h2mux；给 xray 节点下发 multiplex 会让复用连接直接连不上。
+    // 内核以节点上报的 metrics.kernel 为准（auto 模式会切换）。
+    public function test_multiplex_is_omitted_for_xray_kernel_nodes(): void
+    {
+        $server = [
+            'id' => 908, 'type' => 'vmess', 'name' => 'MUX-XRAY',
+            'host' => 'm.example.com', 'port' => 443,
+            'password' => '11111111-2222-3333-4444-555555555555',
+            'protocol_settings' => [
+                'tls' => 0, 'network' => 'tcp',
+                'multiplex' => ['enabled' => true, 'protocol' => 'yamux', 'padding' => true],
+            ],
+        ];
+
+        Cache::put(CacheKey::get('SERVER_VMESS_METRICS', 908), ['kernel' => 'xray'], 300);
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.14.0', 'SFA/1.14.0'))->handle()->getContent(), true);
+        $out = collect($config['outbounds'])->firstWhere('tag', 'MUX-XRAY');
+        $this->assertArrayNotHasKey('multiplex', $out, 'xray kernel cannot serve smux/yamux');
+
+        $clash = Yaml::parse((new ClashMeta($this->user(), [$server], 'meta', '1.19.34', 'mihomo/1.19.34'))->handle()->getContent());
+        $proxy = collect($clash['proxies'])->firstWhere('name', 'MUX-XRAY');
+        $this->assertArrayNotHasKey('smux', $proxy, 'mihomo smux is sing-box dialect only');
+
+        // Same node on the sing-box kernel keeps multiplex (control case).
+        Cache::put(CacheKey::get('SERVER_VMESS_METRICS', 908), ['kernel' => 'sing-box'], 300);
+        $config = json_decode((new SingBox($this->user(), [$server], 'sing-box', '1.14.0', 'SFA/1.14.0'))->handle()->getContent(), true);
+        $out = collect($config['outbounds'])->firstWhere('tag', 'MUX-XRAY');
+        $this->assertTrue($out['multiplex']['enabled']);
     }
 
     private function user(): array

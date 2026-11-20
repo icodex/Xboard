@@ -301,7 +301,7 @@ class ClashMeta extends AbstractProtocol
         }
 
         self::appendUtls($array, $protocol_settings, $server);
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
@@ -459,7 +459,7 @@ class ClashMeta extends AbstractProtocol
                 break;
         }
 
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         return $array;
     }
@@ -498,7 +498,7 @@ class ClashMeta extends AbstractProtocol
         }
 
         self::appendUtls($array, $protocol_settings, $server);
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
@@ -723,8 +723,13 @@ class ClashMeta extends AbstractProtocol
         }
     }
 
-    protected static function appendMultiplex(&$array, $protocol_settings)
+    protected static function appendMultiplex(&$array, $protocol_settings, $server = null)
     {
+        // mihomo 的 smux 是 sing-mux 方言，只有 sing-box 服务端能解；
+        // xray 内核的 mux.cool 它发不出来（见 AbstractProtocol::nodeRunsSingbox）。
+        if (!self::nodeRunsSingbox($server)) {
+            return;
+        }
         if ($multiplex = data_get($protocol_settings, 'multiplex')) {
             if (data_get($multiplex, 'enabled')) {
                 $array['smux'] = array_filter([

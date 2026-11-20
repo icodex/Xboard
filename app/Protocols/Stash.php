@@ -240,7 +240,7 @@ class Stash extends AbstractProtocol
         }
 
         self::appendUtls($array, $protocol_settings, $server);
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
@@ -388,7 +388,7 @@ class Stash extends AbstractProtocol
                 break;
         }
 
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         return $array;
     }
@@ -428,7 +428,7 @@ class Stash extends AbstractProtocol
         }
 
         self::appendUtls($array, $protocol_settings, $server);
-        self::appendMultiplex($array, $protocol_settings);
+        self::appendMultiplex($array, $protocol_settings, $server);
 
         switch (data_get($protocol_settings, 'network')) {
             case 'tcp':
@@ -612,8 +612,12 @@ class Stash extends AbstractProtocol
         }
     }
 
-    protected static function appendMultiplex(&$array, $protocol_settings)
+    protected static function appendMultiplex(&$array, $protocol_settings, $server = null)
     {
+        // Stash 的 smux 与 mihomo 同源（sing-mux 方言），xray 内核只说 mux.cool。
+        if (!self::nodeRunsSingbox($server)) {
+            return;
+        }
         if ($multiplex = data_get($protocol_settings, 'multiplex')) {
             if (data_get($multiplex, 'enabled')) {
                 $array['smux'] = array_filter([

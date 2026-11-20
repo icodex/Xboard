@@ -282,6 +282,9 @@ class ServerService
             // 节点自报的配置拒绝原因（协议/内核不匹配等）。节点起不来时这是
             // 唯一能说明原因的信息，空串表示当前配置可用。
             'config_error' => (string) ($metrics['config_error'] ?? ''),
+            // 节点实际运行的内核（auto 模式会切换）：订阅侧据此决定能否下发
+            // 只有 sing-box 入站支持的 multiplex。
+            'kernel' => (string) ($metrics['kernel'] ?? ''),
         ];
 
         Cache::put(
